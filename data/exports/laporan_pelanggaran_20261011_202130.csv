@@ -1,0 +1,1 @@
+﻿id,timestamp,track_id,vehicle_type,license_plate,violation_type,helmet_status,gemini_safety_validation,gemini_confidence,severity,status_tilang,evidence_rider_path,evidence_plate_path
