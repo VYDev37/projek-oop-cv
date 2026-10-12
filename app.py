@@ -1,531 +1,512 @@
 """
 Module: app.py
-Deskripsi: Antarmuka Dashboard Visual Berbasis Streamlit untuk:
-           1. Live Stream Monitoring & Vehicle Counting (YOLO + ByteTrack)
-           2. Log Pelanggaran & Galeri Bukti (Rider & Plate Crops)
-           3. Validasi Dokumen SIM/STNK & Pencocokan Nopol (Gemini AI Multimodal)
-           4. Analitik & Laporan Ekspor (CSV / Excel)
+Deskripsi: Dashboard Web Interaktif berbasis Streamlit untuk Platform:
+           [I2] Sistem AI Image Analysis & Tagging Otomatis
+           Mencakup fitur-fitur:
+           - Analisis Foto Tunggal (Caption, Tags, Objects, Colors, OCR, Moderasi)
+           - Pemilihan Provider via Strategy Pattern (Gemini / GPT-4o / Mock)
+           - Batch Analysis
+           - Komparasi 2 Provider
+           - Koleksi Foto dengan Iterator Pattern, Pencarian Tag, Filter Kategori
+           - Statistik Tag Terpopuler (Counter)
+           - Laporan Moderasi (ContentModerator)
+           - Ekspor Koleksi ke CSV (CollectionCSVExporter)
 """
 
-import time
-import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-import cv2
 import pandas as pd
-import streamlit as st
 from PIL import Image
-import numpy as np
+import streamlit as st
 
-from config import (
-    GEMINI_API_KEY,
-    DEFAULT_GEMINI_MODEL,
-    SAMPLES_DIR,
-    EVIDENCE_DIR,
-    COUNTING_LINE_Y_RATIO,
+from config import SAMPLES_DIR, EXPORTS_DIR, GEMINI_API_KEY, OPENAI_API_KEY
+from vision_client import (
+    VisionClient,
+    GeminiVisionClient,
+    GPT4VisionClient,
+    MockVisionClient,
+    PhotoAnalysisResult,
+    ImageAnalysisService,
+    VisionAPIException,
 )
-from database import db_manager
-from pipeline import pipeline, TrafficMonitoringPipeline
-from gemini_client import gemini_client
+from photo_collection import (
+    PhotoCollection,
+    ContentModerator,
+    CollectionCSVExporter,
+)
 
-# ==============================================================================
-# KONFIGURASI HALAMAN STREAMLIT
-# ==============================================================================
+# KONFIGURASI HALAMAN STREAMLIT & CUSTOM STYLING
 st.set_page_config(
-    page_title="Sistem Cerdas Pemantauan Lalu Lintas & Keselamatan AI",
-    page_icon="🚦",
+    page_title="AI Image Analysis & Tagging [I2]",
+    page_icon="📸",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS untuk tampilan modern dan rapi
 st.markdown(
     """
     <style>
-    .main-title {
-        font-size: 2.2rem;
+    .main-header {
+        font-size: 2.1rem;
         font-weight: 700;
-        color: #1E88E5;
+        color: #1E3A8A;
         margin-bottom: 0.2rem;
     }
-    .sub-title {
+    .sub-header {
         font-size: 1.05rem;
-        color: #616161;
+        color: #475569;
         margin-bottom: 1.5rem;
     }
     .metric-card {
-        background-color: #F8F9FA;
-        border-radius: 8px;
-        padding: 15px;
-        border-left: 4px solid #1E88E5;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .badge-violation {
-        background-color: #FFEBEE;
-        color: #C62828;
-        padding: 4px 10px;
-        border-radius: 12px;
+    .badge-safe {
+        background-color: #DCFCE7;
+        color: #166534;
         font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
         font-size: 0.85rem;
+        display: inline-block;
     }
-    .badge-success {
-        background-color: #E8F5E9;
-        color: #2E7D32;
-        padding: 4px 10px;
-        border-radius: 12px;
+    .badge-unsafe {
+        background-color: #FEE2E2;
+        color: #991B1B;
         font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
         font-size: 0.85rem;
+        display: inline-block;
+    }
+    .tag-pill {
+        background-color: #EFF6FF;
+        color: #1D4ED8;
+        border: 1px solid #DBEAFE;
+        padding: 3px 9px;
+        border-radius: 16px;
+        font-size: 0.82rem;
+        margin-right: 6px;
+        margin-bottom: 6px;
+        display: inline-block;
+    }
+    .color-pill {
+        background-color: #F1F5F9;
+        color: #334155;
+        border: 1px solid #E2E8F0;
+        padding: 3px 9px;
+        border-radius: 16px;
+        font-size: 0.82rem;
+        margin-right: 6px;
+        display: inline-block;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ==============================================================================
-# SIDEBAR - PENGATURAN & KREDENSIAL
-# ==============================================================================
+# INISIALISASI SESSION STATE (KOLEKSI & SERVICE)
+if "collection" not in st.session_state:
+    st.session_state.collection = PhotoCollection()
+    init_files = list(SAMPLES_DIR.glob("*.jpg"))
+    if init_files:
+        mock_init = MockVisionClient()
+        for f in init_files[:3]:
+            try:
+                res = mock_init.analyze(f)
+                st.session_state.collection.tambah(res)
+            except Exception:
+                pass
+
+if "service" not in st.session_state or not isinstance(st.session_state.service, ImageAnalysisService):
+    default_strategy = GeminiVisionClient() if GEMINI_API_KEY else MockVisionClient()
+    st.session_state.service = ImageAnalysisService(strategy=default_strategy)
+
+if "moderator" not in st.session_state:
+    st.session_state.moderator = ContentModerator()
+
+if "exporter" not in st.session_state:
+    st.session_state.exporter = CollectionCSVExporter()
+
+# SIDEBAR: PENGATURAN STRATEGY PATTERN & STATUS SISTEM
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3208/3208677.png", width=80)
-    st.title("Panel Kontrol AI")
-    st.markdown("---")
-
-    # Status Gemini AI
-    st.subheader("🔑 Google Gemini API")
-    input_api_key = st.text_input(
-        "Gemini API Key",
-        value=GEMINI_API_KEY,
-        type="password",
-        help="Dapatkan API key di https://aistudio.google.com/",
+    st.markdown("### ⚙️ Pengaturan Provider (Strategy Pattern)")
+    provider_choice = st.selectbox(
+        "Pilih Active Strategy Provider:",
+        ["Google Gemini Vision", "OpenAI GPT-4o Vision", "Mock Vision (Offline Demo)"],
+        index=0 if GEMINI_API_KEY else 2,
+        help="Menerapkan Design Pattern Strategy: menukar provider AI saat runtime tanpa merombak sistem.",
     )
 
-    if input_api_key:
-        gemini_client.api_key = input_api_key
-        gemini_client._init_client()
-        st.success("🟢 Gemini API Terhubung")
+    if provider_choice == "Google Gemini Vision":
+        if not GEMINI_API_KEY:
+            st.warning("⚠️ GEMINI_API_KEY belum disetel di .env. Menggunakan simulasi mock.")
+            new_strategy = MockVisionClient(model_name="mock-gemini-fallback")
+        else:
+            new_strategy = GeminiVisionClient()
+    elif provider_choice == "OpenAI GPT-4o Vision":
+        if not OPENAI_API_KEY:
+            st.info("ℹ️ OPENAI_API_KEY tidak disetel. Menggunakan simulasi cerdas GPT-4o.")
+        new_strategy = GPT4VisionClient()
     else:
-        st.warning("🟡 Mode Simulasi (Tanpa API Key)")
+        new_strategy = MockVisionClient()
 
-    selected_model = st.selectbox(
-        "Pilihan Model Multimodal",
-        ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"],
-        index=0,
-    )
-    gemini_client.model_name = selected_model
+    try:
+        st.session_state.service.set_strategy(new_strategy)
+    except TypeError:
+        st.session_state.service = ImageAnalysisService(strategy=new_strategy)
 
-    st.markdown("---")
-    st.subheader("⚙️ Parameter Computer Vision")
-    conf_thresh = st.slider("YOLO Confidence", 0.1, 0.9, 0.35, 0.05)
-    pipeline.detector.conf_threshold = conf_thresh
-
-    line_pos = st.slider("Garis Hitung Virtual (% Tinggi)", 30, 90, int(COUNTING_LINE_Y_RATIO * 100), 5)
-    line_ratio = line_pos / 100.0
+    st.success(f"Strategi Aktif: **{st.session_state.service.strategy.__class__.__name__}**")
 
     st.markdown("---")
-    if st.button("🔄 Reset Penghitung & Database"):
-        pipeline.detector.reset_counters()
-        st.toast("Penghitung berhasil di-reset!", icon="✅")
+    st.markdown("### 📊 Statistik Koleksi Cepat")
+    col_k1, col_k2 = st.columns(2)
+    with col_k1:
+        st.metric("Total Foto", len(st.session_state.collection))
+    with col_k2:
+        report_quick = st.session_state.moderator.generate_moderation_report(st.session_state.collection)
+        st.metric("Aman (Safe)", f"{report_quick['safe_rate_percentage']}%")
 
-# ==============================================================================
-# HEADER UTAMA
-# ==============================================================================
-st.markdown('<div class="main-title">🚦 Sistem Cerdas Pemantauan Lalu Lintas & Keselamatan Pengendara</div>', unsafe_allow_html=True)
+    if st.button("🗑️ Kosongkan Koleksi Foto", use_container_width=True):
+        st.session_state.collection.clear()
+        st.rerun()
+
+# HEADER UTAMA APLIKASI
+st.markdown('<div class="main-header">📸 Sistem AI Image Analysis & Tagging Otomatis</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-title">Computer Vision (YOLOv8 + ByteTrack) • OCR Plat Nomor • Validasi Multimodal Google Gemini AI • SQLite Database</div>',
+    '<div class="sub-header">'
+    'Platform kurasi foto cerdas berbasis <b>Object-Oriented Programming (OOP)</b> '
+    'dengan integrasi Vision AI (Gemini / GPT-4o / Mock): Captioning, Tagging, Object Extraction, Kategori, Moderasi, '
+    'dan Koleksi Foto terstruktur.'
+    '</div>',
     unsafe_allow_html=True,
 )
 
-tabs = st.tabs([
-    "🎥 Live Stream & Monitoring",
-    "🚨 Log Pelanggaran & Bukti",
-    "📄 Validasi Dokumen (SIM/STNK)",
-    "📊 Statistik Lalu Lintas",
+# TABS NAVIGASI UTAMA (4 TAB LENGKAP)
+tab_single, tab_batch, tab_compare, tab_gallery = st.tabs([
+    "🔍 1. Analisis Foto Tunggal",
+    "⚡ 2. Analisis Batch",
+    "⚖️ 3. Komparasi 2 Provider",
+    "📚 4. Galeri Koleksi & Moderasi",
 ])
 
-# ==============================================================================
-# TAB 1: LIVE STREAM & MONITORING
-# ==============================================================================
-with tabs[0]:
-    st.subheader("Pemantauan Lalu Lintas Real-Time & Inspeksi ETLE")
+# TAB 1: ANALISIS FOTO TUNGGAL
+with tab_single:
+    st.subheader("Analisis Mendalam Citra Tunggal")
 
-    col_ctrl, col_stats = st.columns([2, 1])
+    col_input, col_display = st.columns([1, 1], gap="medium")
 
-    with col_ctrl:
-        source_type = st.radio(
-            "Pilih Sumber Pemantauan:",
-            [
-                "Demo Video Sampel",
-                "Unggah Berkas Video",
-                "Webcam / Kamera (Live)",
-                "Unggah Foto (Gambar)",
-                "Ambil Foto Langsung (Kamera)",
-            ],
+    with col_input:
+        input_source = st.radio(
+            "Pilih Sumber Foto:",
+            ["Pilih dari Sampel Bawaan", "Unggah Berkas Gambar (JPG/PNG)", "Ambil Foto Langsung (Kamera)"],
             horizontal=True,
         )
 
-        is_image_mode = source_type in ("Unggah Foto (Gambar)", "Ambil Foto Langsung (Kamera)")
-        static_image_to_process: Optional[np.ndarray] = None
-        video_path: Optional[str] = None
-        run_monitoring: bool = False
+        selected_image: Optional[Image.Image] = None
+        image_name_label: str = "foto_input.jpg"
 
-        if is_image_mode:
-            if source_type == "Unggah Foto (Gambar)":
-                uploaded_img = st.file_uploader(
-                    "Pilih Berkas Foto Kendaraan / Pengendara (JPG/PNG)",
-                    type=["jpg", "jpeg", "png"],
-                )
-                if uploaded_img is not None:
-                    pil_img = Image.open(uploaded_img)
-                    static_image_to_process = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                    st.image(pil_img, caption="Foto yang Diunggah", use_container_width=True)
-
-            elif source_type == "Ambil Foto Langsung (Kamera)":
-                camera_snap = st.camera_input("Ambil Foto dari Kamera Laptop / HP")
-                if camera_snap is not None:
-                    pil_img = Image.open(camera_snap)
-                    static_image_to_process = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                    st.image(pil_img, caption="Hasil Jepretan Kamera", use_container_width=True)
-
-        else:
-            if source_type == "Demo Video Sampel":
-                sample_mp4 = SAMPLES_DIR / "sample_traffic.mp4"
-                if sample_mp4.exists():
-                    video_path = str(sample_mp4)
-                else:
-                    st.info("Sampel video demo belum ada, sistem akan menggunakan file otomatis.")
-            elif source_type == "Unggah Berkas Video":
-                uploaded_video = st.file_uploader("Pilih Berkas Video (MP4/AVI/MOV)", type=["mp4", "avi", "mov"])
-                if uploaded_video is not None:
-                    file_ext = Path(uploaded_video.name).suffix or ".mp4"
-                    temp_video_path = EVIDENCE_DIR / f"temp_upload{file_ext}"
-                    with open(temp_video_path, "wb") as f:
-                        f.write(uploaded_video.getbuffer())
-                    video_path = str(temp_video_path)
+        if input_source == "Pilih dari Sampel Bawaan":
+            samples = list(SAMPLES_DIR.glob("*.jpg"))
+            if samples:
+                sample_map = {p.name: p for p in samples}
+                chosen_name = st.selectbox("Pilih Sampel Foto:", list(sample_map.keys()))
+                chosen_path = sample_map[chosen_name]
+                selected_image = Image.open(chosen_path)
+                image_name_label = chosen_name
             else:
-                # Webcam index
-                video_path = 0
+                st.info("Sampel belum ada. Silakan jalankan generate_samples.py.")
 
-            run_monitoring = st.checkbox("Mulai Pemantauan Video", value=False)
+        elif input_source == "Unggah Berkas Gambar (JPG/PNG)":
+            uploaded_file = st.file_uploader("Unggah berkas foto:", type=["jpg", "jpeg", "png"])
+            if uploaded_file is not None:
+                selected_image = Image.open(uploaded_file)
+                image_name_label = uploaded_file.name
 
-    with col_stats:
-        stats = db_manager.get_system_statistics()
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <h4>Ringkasan Pemantauan</h4>
-                <p><b>Total Kendaraan:</b> {max(stats['total_vehicles'], pipeline.detector.total_counted)}</p>
-                <p><b>Total Pelanggaran:</b> {max(stats['total_violations'], len(pipeline.recent_alerts))}</p>
-                <p><b>Tingkat Kepatuhan Helm:</b> {stats['compliance_rate']}%</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        elif input_source == "Ambil Foto Langsung (Kamera)":
+            camera_file = st.camera_input("Jepret foto langsung:")
+            if camera_file is not None:
+                selected_image = Image.open(camera_file)
+                image_name_label = f"camera_snap_{datetime.now().strftime('%H%M%S')}.jpg"
 
-    st.markdown("---")
-
-    # A. MODE CITRA STATIS (INSPEKSI ETLE SNAPSHOT)
-    if is_image_mode:
-        if static_image_to_process is not None:
-            if st.button("🔍 Proses Inspeksi ETLE (Deteksi & AI)", type="primary"):
-                with st.spinner("Menjalankan analisis Computer Vision & Gemini AI..."):
-                    ann_img, inspections, summary = pipeline.process_static_image(static_image_to_process)
-
-                    st.success(
-                        f"Inspeksi Selesai! Terdeteksi {summary['total_vehicles']} kendaraan, "
-                        f"{summary['total_violations']} pelanggaran. Kepatuhan: {summary['compliance_rate']}%."
-                    )
-
-                    col_res_img, col_res_cards = st.columns([3, 2])
-                    with col_res_img:
-                        st.image(
-                            cv2.cvtColor(ann_img, cv2.COLOR_BGR2RGB),
-                            caption="Hasil Deteksi & Anotasi Bounding Box",
-                            use_container_width=True,
-                        )
-
-                    with col_res_cards:
-                        st.write("#### 📋 Hasil Investigasi Tiap Kendaraan")
-                        if inspections:
-                            for item in inspections:
-                                is_viol = item["violation_detected"]
-                                bg_color = "#ffebee" if is_viol else "#e8f5e9"
-                                border_color = "#ffcdd2" if is_viol else "#c8e6c9"
-                                badge_class = "badge-violation" if is_viol else "badge-success"
-                                status_label = "TILANG ELEKTRONIK" if is_viol else "PATUH ATURAN"
-
-                                st.markdown(
-                                    f"""
-                                    <div style="border: 1px solid {border_color}; background: {bg_color}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                                        <span class="{badge_class}">{status_label}</span>
-                                        <span style="float:right; font-size:0.8rem; color:#666;">ID #{item['track_id']}</span>
-                                        <br><b>Kendaraan:</b> {item['vehicle_type'].upper()}
-                                        <br><b>Plat Nomor (OCR):</b> <code>{item['license_plate']}</code>
-                                        <br><b>Status Helm:</b> {item['helmet_status']}
-                                        <br><b>Keparahan:</b> {item['severity']} | <b>Tindakan:</b> {item['recommended_action']}
-                                        <br><small style="color:#444;"><b>Catatan:</b> {item['officer_notes']}</small>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                        else:
-                            st.info("Tidak ada kendaraan yang terdeteksi pada citra ini.")
+        if selected_image is not None:
+            st.image(selected_image, caption=f"Pratinjau: {image_name_label}", use_container_width=True)
+            btn_analyze = st.button("🚀 Jalankan Analisis AI", type="primary", use_container_width=True)
         else:
-            st.info("Silakan unggah gambar atau ambil foto menggunakan kamera di atas untuk memulai inspeksi.")
+            btn_analyze = False
 
-    # B. MODE VIDEO STREAMING
-    else:
-        col_video, col_feed = st.columns([3, 2])
+    with col_display:
+        st.markdown("#### 📋 Hasil Analisis Vision AI")
 
-        with col_video:
-            video_placeholder = st.empty()
+        if btn_analyze and selected_image is not None:
+            with st.spinner(f"Menganalisis menggunakan {st.session_state.service.strategy.__class__.__name__}..."):
+                try:
+                    result = st.session_state.service.analyze_image(selected_image, image_name=image_name_label)
+                    st.session_state.last_result = result
+                    st.session_state.collection.tambah(result)
+                    st.success("✅ Analisis Berhasil & Otomatis Disimpan ke Koleksi!")
+                except VisionAPIException as vae:
+                    st.error(f"❌ VisionAPIException: {vae}")
+                    st.session_state.last_result = None
+                except Exception as e:
+                    st.error(f"❌ Terjadi kesalahan tak terduga: {e}")
+                    st.session_state.last_result = None
 
-        with col_feed:
-            st.write("#### 🔔 Umpan Pelanggaran Langsung")
-            feed_placeholder = st.empty()
+        if "last_result" in st.session_state and st.session_state.last_result:
+            res: PhotoAnalysisResult = st.session_state.last_result
 
-        if run_monitoring and video_path is not None:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                st.error(f"Gagal membuka sumber video: {video_path}")
+            if res.is_safe:
+                st.markdown('<span class="badge-safe">🛡️ AMAN (SAFE)</span>', unsafe_allow_html=True)
             else:
-                fps_timer = time.time()
-                frame_count = 0
+                st.markdown('<span class="badge-unsafe">⚠️ TIDAK AMAN (UNSAFE / SENSITIF)</span>', unsafe_allow_html=True)
 
-                while cap.isOpened() and run_monitoring:
-                    ret, frame = cap.read()
-                    if not ret:
-                        # Loop video jika file
-                        if isinstance(video_path, str) and not source_type.startswith("Webcam"):
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                            continue
-                        break
+            st.markdown(f"**Provider:** `{res.provider}` | ⏱️ `{res.processing_time_ms} ms`")
+            st.markdown(f"**Kategori:** `{res.kategori}`")
 
-                    # Frame processing via pipeline
-                    annotated_frame, alerts, meta = pipeline.process_frame(frame, line_ratio=line_ratio)
+            st.markdown("##### 📝 Caption Deskriptif:")
+            st.info(res.caption)
 
-                    # Hitung FPS
-                    frame_count += 1
-                    curr_time = time.time()
-                    fps = frame_count / (curr_time - fps_timer) if (curr_time - fps_timer) > 0 else 0
+            st.markdown("##### 🔖 Tags Kata Kunci:")
+            tags_html = "".join([f'<span class="tag-pill">#{t}</span>' for t in res.tags])
+            st.markdown(tags_html, unsafe_allow_html=True)
 
-                    # Tampilkan di Streamlit
-                    frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-                    video_placeholder.image(
-                        frame_rgb,
-                        caption=f"Real-Time Stream | FPS: {fps:.1f} | Garis: {int(line_ratio*100)}%",
-                        use_container_width=True,
-                    )
+            st.markdown("##### 🔍 Objek Fisik Terdeteksi:")
+            if res.objects:
+                st.write(", ".join(res.objects))
+            else:
+                st.write("Tidak ada objek terpisah yang terdaftar.")
 
-                    # Perbarui umpan alert pelanggaran
-                    with feed_placeholder.container():
-                        if alerts:
-                            for alert in alerts[:4]:
-                                st.markdown(
-                                    f"""
-                                    <div style="border: 1px solid #ffcdd2; background: #ffebee; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
-                                        <span class="badge-violation">{alert.violation_type}</span>
-                                        <span style="float:right; font-size:0.8rem; color:#666;">{alert.timestamp}</span>
-                                        <br><b>Kendaraan:</b> {alert.vehicle_type} (Track #{alert.track_id})
-                                        <br><b>Plat Nomor (OCR):</b> <code>{alert.license_plate}</code>
-                                        <br><b>Keparahan:</b> {alert.severity} | <b>Tindakan:</b> {alert.recommended_action}
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                        else:
-                            st.info("Belum ada pelanggaran terdeteksi pada aliran saat ini.")
+            st.markdown("##### 🎨 Palet Warna Dominan:")
+            colors_html = "".join([f'<span class="color-pill">🎨 {c}</span>' for c in res.colors])
+            st.markdown(colors_html, unsafe_allow_html=True)
 
-                    time.sleep(0.03)
-
-                cap.release()
-
-# ==============================================================================
-# TAB 2: LOG PELANGGARAN & BUKTI
-# ==============================================================================
-with tabs[1]:
-    st.subheader("Buku Register Pelanggaran & Galeri Barang Bukti")
-
-    col_btn1, col_btn2, col_filter = st.columns([1, 1, 2])
-    with col_btn1:
-        if st.button("📥 Ekspor ke CSV"):
-            csv_path = db_manager.export_violations_to_csv()
-            st.success(f"Terekspor: {csv_path.name}")
-    with col_btn2:
-        if st.button("📊 Ekspor ke Excel (.xlsx)"):
-            xls_path = db_manager.export_violations_to_excel()
-            st.success(f"Terekspor: {xls_path.name}")
-
-    df_violations = db_manager.get_violations_dataframe(limit=100)
-
-    if not df_violations.empty:
-        st.dataframe(
-            df_violations[[
-                "id", "timestamp", "track_id", "vehicle_type", "license_plate",
-                "violation_type", "helmet_status", "severity", "status_tilang"
-            ]],
-            use_container_width=True,
-        )
-
-        st.markdown("---")
-        st.subheader("🔍 Peninjauan Bukti Forensik Pelanggaran")
-        selected_id = st.selectbox("Pilih ID Pelanggaran untuk Melihat Bukti:", df_violations["id"].tolist())
-
-        if selected_id:
-            row = df_violations[df_violations["id"] == selected_id].iloc[0]
-
-            col_ev1, col_ev2, col_ev3 = st.columns([1.5, 1.5, 2])
-
-            with col_ev1:
-                st.write("**Foto Bukti Pengendara:**")
-                r_path = row["evidence_rider_path"]
-                if r_path and Path(r_path).exists():
-                    st.image(str(r_path), use_container_width=True)
-                else:
-                    st.info("Citra bukti pengendara tidak tersedia.")
-
-            with col_ev2:
-                st.write("**Foto Bukti Plat Nomor:**")
-                p_path = row["evidence_plate_path"]
-                if p_path and Path(p_path).exists():
-                    st.image(str(p_path), use_container_width=True)
-                else:
-                    st.info("Citra bukti plat tidak tersedia.")
-
-            with col_ev3:
-                st.write("**Detail Analisis Gemini AI:**")
-                st.write(f"- **Nomor Polisi (OCR):** `{row['license_plate']}`")
-                st.write(f"- **Jenis Pelanggaran:** {row['violation_type']}")
-                st.write(f"- **Tingkat Keparahan:** {row['severity']}")
-                st.write(f"- **Status Helm:** {row['helmet_status']}")
-                st.write(f"- **Confidence Score:** {row['gemini_confidence']}")
-                st.write(f"- **Status Penindakan:** {row['status_tilang']}")
-
-                # Detail JSON
-                raw_json = row["gemini_safety_validation"]
-                if raw_json:
-                    with st.expander("Lihat Payload Structured JSON Gemini"):
-                        st.json(raw_json)
-    else:
-        st.info("Belum ada data pelanggaran di database. Jalankan pemantauan video terlebih dahulu.")
-
-# ==============================================================================
-# TAB 3: VALIDASI DOKUMEN (SIM/STNK) & PENCOCOKAN NOPOL
-# ==============================================================================
-with tabs[2]:
-    st.subheader("Verifikasi Dokumen Berkendara & Cross-Check Nopol Kamera")
-    st.markdown("Gunakan model multimodal Gemini AI untuk mengekstrak data dari SIM/STNK dan mencocokkannya dengan nomor plat yang tertangkap kamera.")
-
-    col_doc_in, col_doc_out = st.columns([1, 1])
-
-    with col_doc_in:
-        doc_source = st.radio(
-            "Pilih Sampel atau Unggah Sendiri:",
-            ["Sampel STNK Sesuai (Match)", "Sampel STNK Kedaluwarsa (Expired)", "Unggah Gambar Dokumen"],
-            horizontal=True,
-        )
-
-        doc_image_to_process = None
-        target_plate_input = st.text_input("Nomor Plat Kendaraan Hasil Tangkapan Kamera:", value="B 1234 ABC")
-
-        if doc_source == "Sampel STNK Sesuai (Match)":
-            s_path = SAMPLES_DIR / "sample_stnk_cocok.jpg"
-            if s_path.exists():
-                doc_image_to_process = str(s_path)
-                st.image(doc_image_to_process, caption="Sampel Dokumen STNK Cocok", use_container_width=True)
-        elif doc_source == "Sampel STNK Kedaluwarsa (Expired)":
-            s_path = SAMPLES_DIR / "sample_stnk_expired.jpg"
-            if s_path.exists():
-                doc_image_to_process = str(s_path)
-                st.image(doc_image_to_process, caption="Sampel Dokumen STNK Expired", use_container_width=True)
+            if res.ocr_text:
+                st.markdown("##### 📄 Teks OCR:")
+                st.code(res.ocr_text, language="text")
         else:
-            uploaded_doc = st.file_uploader("Unggah Foto SIM atau STNK", type=["jpg", "jpeg", "png"])
-            if uploaded_doc:
-                doc_image_to_process = Image.open(uploaded_doc)
-                st.image(doc_image_to_process, caption="Dokumen Diunggah", use_container_width=True)
+            if not btn_analyze:
+                st.info("Pilih atau unggah foto di sebelah kiri, lalu klik **Jalankan Analisis AI**.")
 
-        verify_button = st.button("🔍 Verifikasi dengan Gemini AI", type="primary")
+# TAB 2: ANALISIS BATCH
+with tab_batch:
+    st.subheader("⚡ Pemrosesan Batch Banyak Foto Sekaligus")
+    st.write("Proses banyak foto dalam satu antrean kerja dan otomatis tambahkan hasilnya ke koleksi.")
 
-    with col_doc_out:
-        if verify_button and doc_image_to_process is not None:
-            with st.spinner("Memproses analisis multimodal Gemini AI..."):
-                doc_res, match_status, row_id = pipeline.verify_document(
-                    doc_image_to_process, target_detected_plate=target_plate_input
+    batch_source = st.radio(
+        "Pilih Sumber Batch:",
+        ["Gunakan Seluruh Foto Sampel", "Unggah Banyak Berkas Sekaligus (Multi-Upload)"],
+        horizontal=True,
+    )
+
+    batch_images = []
+    if batch_source == "Gunakan Seluruh Foto Sampel":
+        sample_files = list(SAMPLES_DIR.glob("*.jpg"))
+        st.write(f"Ditemukan **{len(sample_files)} berkas sampel** di direktori data.")
+        batch_images = sample_files
+    else:
+        uploaded_multi = st.file_uploader(
+            "Unggah banyak foto sekaligus:",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+        )
+        if uploaded_multi:
+            batch_images = uploaded_multi
+
+    if batch_images:
+        if st.button("🚀 Mulai Analisis Batch", type="primary"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            processed_count = 0
+            total_items = len(batch_images)
+
+            def update_progress(curr, tot, msg):
+                progress_bar.progress(curr / tot)
+                status_text.text(f"[{curr}/{tot}] {msg}")
+
+            results = st.session_state.collection.batch_analyze(
+                batch_images,
+                client=st.session_state.service.strategy,
+                progress_callback=update_progress,
+            )
+
+            progress_bar.progress(1.0)
+            status_text.text(f"Selesai! Berhasil memproses {len(results)} dari {total_items} foto.")
+            st.success(f"Analisis batch selesai! {len(results)} foto baru telah masuk ke koleksi.")
+
+            table_data = []
+            for r in results:
+                table_data.append({
+                    "Berkas": Path(r.image_path).name if r.image_path else "-",
+                    "Kategori": r.kategori,
+                    "Moderasi": "AMAN" if r.is_safe else "UNSAFE",
+                    "Caption": r.caption[:50] + "...",
+                    "Tags": ", ".join(r.tags[:4]),
+                    "Waktu (ms)": r.processing_time_ms,
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True)
+
+# TAB 3: KOMPARASI 2 PROVIDER 
+with tab_compare:
+    st.subheader("⚖️ Komparasi Hasil 2 Provider Berbeda")
+    st.write("Bandingkan hasil analisis dua provider Vision AI secara berdampingan pada citra yang sama.")
+
+    col_p1, col_p2 = st.columns(2)
+    with col_p1:
+        p1_choice = st.selectbox(
+            "Provider A:",
+            ["Google Gemini Vision", "Mock Vision (Offline)", "OpenAI GPT-4o"],
+            index=0,
+        )
+    with col_p2:
+        p2_choice = st.selectbox(
+            "Provider B:",
+            ["OpenAI GPT-4o", "Mock Vision (Offline)", "Google Gemini Vision"],
+            index=1,
+        )
+
+    def get_client_by_name(name: str) -> VisionClient:
+        if name == "Google Gemini Vision":
+            return GeminiVisionClient() if GEMINI_API_KEY else MockVisionClient(model_name="mock-gemini")
+        elif name == "OpenAI GPT-4o":
+            return GPT4VisionClient()
+        else:
+            return MockVisionClient()
+
+    client_a = get_client_by_name(p1_choice)
+    client_b = get_client_by_name(p2_choice)
+
+    samples_avail = list(SAMPLES_DIR.glob("*.jpg"))
+    if samples_avail:
+        compare_image_path = st.selectbox(
+            "Pilih Gambar untuk Dikomparasi:",
+            samples_avail,
+            format_func=lambda p: p.name,
+        )
+        st.image(str(compare_image_path), width=350)
+
+        if st.button("⚖️ Jalankan Komparasi Provider", type="primary"):
+            with st.spinner("Menjalankan komparasi kedua provider..."):
+                comp = st.session_state.service.compare_providers(
+                    compare_image_path, client_a, client_b, image_name=compare_image_path.name
                 )
 
-                st.success("Analisis Dokumen Selesai!")
+                col_res1, col_res2 = st.columns(2)
+                with col_res1:
+                    st.markdown(f"#### 🅰️ {comp['provider_a']['name']}")
+                    st.write(f"**Caption:** {comp['provider_a']['caption']}")
+                    st.write(f"**Kategori:** {comp['provider_a']['kategori']}")
+                    st.write(f"**Waktu:** {comp['provider_a']['processing_time_ms']} ms")
+                    st.write("**Tags:** " + ", ".join(comp['provider_a']['tags']))
 
-                # Kartu Hasil
-                st.markdown("### 📋 Hasil Ekstraksi Dokumen")
-                st.write(f"- **Jenis Dokumen:** `{doc_res.document_type}`")
-                st.write(f"- **Nomor Dokumen:** `{doc_res.document_number}`")
-                st.write(f"- **Nama Pemilik:** **{doc_res.holder_name}**")
-                st.write(f"- **Plat Terdaftar di Dokumen:** `{doc_res.registered_plate_number}`")
-                st.write(f"- **Tipe Kendaraan:** {doc_res.vehicle_type_stated}")
-                st.write(f"- **Masa Berlaku:** `{doc_res.expiry_date}`")
+                with col_res2:
+                    st.markdown(f"#### 🅱️ {comp['provider_b']['name']}")
+                    st.write(f"**Caption:** {comp['provider_b']['caption']}")
+                    st.write(f"**Kategori:** {comp['provider_b']['kategori']}")
+                    st.write(f"**Waktu:** {comp['provider_b']['processing_time_ms']} ms")
+                    st.write("**Tags:** " + ", ".join(comp['provider_b']['tags']))
 
                 st.markdown("---")
-                st.markdown("### ⚖️ Status Validasi & Keabsahan Dokumen")
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("Shared Tags (Tag Bersama)", len(comp['shared_tags']))
+                    st.write(", ".join(comp['shared_tags']) if comp['shared_tags'] else "Tidak ada tag identik.")
+                with col_m2:
+                    st.metric("Tingkat Keselarasan Tag", f"{comp['tag_agreement_rate']}%")
 
-                # Guardrail: Cek apakah citra merupakan dokumen resmi SIM/STNK yang valid
-                is_invalid_doc = (not doc_res.is_document_valid) or (doc_res.document_type in ("TIDAK_DIKETAHUI", "TIDAK_VALID"))
-
-                if is_invalid_doc:
-                    st.markdown('<span class="badge-violation">🚫 DOKUMEN TIDAK VALID / BUKAN SIM/STNK</span>', unsafe_allow_html=True)
-                    st.error("❌ Berkas yang diunggah DITOLAK oleh sistem karena bukan merupakan dokumen resmi SIM atau STNK yang sah.")
-                else:
-                    st.markdown('<span class="badge-success">📄 DOKUMEN RESMI TERVERIFIKASI</span>', unsafe_allow_html=True)
-                    st.write("")
-
-                    # 1. Match status badge
-                    if match_status == "MATCH":
-                        st.markdown('<span class="badge-success">✅ PLAT COCOK (MATCH)</span>', unsafe_allow_html=True)
-                    elif match_status == "MISMATCH":
-                        st.markdown('<span class="badge-violation">❌ PLAT TIDAK COCOK (MISMATCH)</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="badge-violation">⚠️ PLAT TIDAK DAPAT DIVERIFIKASI</span>', unsafe_allow_html=True)
-
-                    st.write("")
-                    # 2. Expiry status
-                    if doc_res.is_expired:
-                        st.markdown('<span class="badge-violation">⚠️ DOKUMEN KEDALUWARSA / MATI PAJAK</span>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<span class="badge-success">✅ MASA BERLAKU AKTIF</span>', unsafe_allow_html=True)
-
-                st.write("")
-                st.info(f"**Catatan Petugas:** {doc_res.notes}")
-
-# ==============================================================================
-# TAB 4: STATISTIK & ANALITIK LALU LINTAS
-# ==============================================================================
-with tabs[3]:
-    st.subheader("Statistik Arus Lalu Lintas & Kepatuhan")
-
-    stats = db_manager.get_system_statistics()
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Kendaraan", stats["total_vehicles"])
-    m2.metric("Total Pelanggaran", stats["total_violations"])
-    m3.metric("Kepatuhan Helm", f"{stats['compliance_rate']}%")
-    m4.metric("Kendaraan Motor", stats["vehicles_by_type"].get("motorcycle", 0))
+# TAB 4: GALERI KOLEKSI, STATISTIK COUNTER & EKSPOR CSV
+with tab_gallery:
+    st.subheader("📚 Galeri Koleksi, Pencarian & Moderasi")
+    report = st.session_state.moderator.generate_moderation_report(st.session_state.collection)
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    with col_m1:
+        st.metric("Total Foto di Koleksi", report["total_photos"])
+    with col_m2:
+        st.metric("Foto Aman (Safe)", report["safe_count"])
+    with col_m3:
+        st.metric("Foto Unsafe / Bahaya", report["unsafe_count"])
+    with col_m4:
+        st.metric("Kepatuhan Keamanan", f"{report['safe_rate_percentage']}%")
 
     st.markdown("---")
-    col_c1, col_c2 = st.columns(2)
 
-    with col_c1:
-        st.write("#### Komposisi Jenis Kendaraan")
-        if stats["vehicles_by_type"]:
-            v_df = pd.DataFrame(
-                list(stats["vehicles_by_type"].items()), columns=["Jenis Kendaraan", "Jumlah"]
-            ).set_index("Jenis Kendaraan")
-            st.bar_chart(v_df)
-        else:
-            st.info("Belum ada data kendaraan terhitung.")
+    col_search, col_filter, col_export = st.columns([2, 2, 2])
 
-    with col_c2:
-        st.write("#### Distribusi Kategori Pelanggaran")
-        if stats["violations_by_type"]:
-            viol_df = pd.DataFrame(
-                list(stats["violations_by_type"].items()), columns=["Jenis Pelanggaran", "Jumlah"]
-            ).set_index("Jenis Pelanggaran")
-            st.bar_chart(viol_df)
-        else:
-            st.info("Belum ada data pelanggaran tercatat.")
+    with col_search:
+        search_tag = st.text_input("🔍 Cari Berdasarkan Tag (cari_by_tag):", placeholder="misal: sunset, kopi")
+
+    with col_filter:
+        kategori_options = ["Semua Kategori"] + list(st.session_state.collection.get_kategori_distribution().keys())
+        selected_kat = st.selectbox("📂 Filter Per Kategori (filter_kategori):", kategori_options)
+
+    with col_export:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if len(st.session_state.collection) > 0:
+            csv_path = EXPORTS_DIR / "koleksi_foto_export.csv"
+            st.session_state.exporter.export_to_csv(st.session_state.collection, csv_path)
+
+            with open(csv_path, "rb") as f:
+                st.download_button(
+                    label="📥 Unduh CSV Koleksi (SOLID: SRP)",
+                    data=f,
+                    file_name="koleksi_foto_ai.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                
+    displayed_photos = st.session_state.collection.get_all_photos()
+
+    if search_tag:
+        displayed_photos = st.session_state.collection.cari_by_tag(search_tag)
+        st.info(f"Menampilkan {len(displayed_photos)} foto yang memuat tag: `{search_tag}`")
+
+    if selected_kat != "Semua Kategori":
+        displayed_photos = [p for p in displayed_photos if p.kategori == selected_kat]
+        st.info(f"Menampilkan {len(displayed_photos)} foto dalam kategori: `{selected_kat}`")
+
+    with st.expander("📊 Lihat Statistik Tag Terpopuler (Counter) & Distribusi Kategori", expanded=False):
+        col_st1, col_st2 = st.columns(2)
+        with col_st1:
+            st.markdown("##### 🏷️ Top 5 Tag Paling Sering Muncul:")
+            pop_tags = st.session_state.collection.get_popular_tags(top_n=5)
+            if pop_tags:
+                df_tags = pd.DataFrame(pop_tags, columns=["Tag", "Frekuensi"])
+                st.bar_chart(df_tags.set_index("Tag"))
+            else:
+                st.write("Belum ada data tag.")
+
+        with col_st2:
+            st.markdown("##### 📁 Distribusi Foto per Kategori:")
+            dist = st.session_state.collection.get_kategori_distribution()
+            if dist:
+                df_kat = pd.DataFrame(list(dist.items()), columns=["Kategori", "Jumlah"])
+                st.bar_chart(df_kat.set_index("Kategori"))
+            else:
+                st.write("Belum ada data kategori.")
+
+    st.markdown(f"#### 🖼️ Daftar Foto dalam Koleksi ({len(displayed_photos)} Foto)")
+
+    if displayed_photos:
+        cols = st.columns(3)
+        for i, photo in enumerate(displayed_photos):
+            with cols[i % 3]:
+                st.markdown(
+                    f"""
+                    <div class="metric-card">
+                        <b>{photo.kategori}</b> | <small>{photo.timestamp}</small><br>
+                        <span class="{'badge-safe' if photo.is_safe else 'badge-unsafe'}">
+                            {'AMAN' if photo.is_safe else 'UNSAFE'}
+                        </span>
+                        <p style="margin-top: 8px; font-size: 0.9rem;">{photo.caption}</p>
+                        <small style="color: #64748B;">Tags: {', '.join(photo.tags[:4])}</small>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.warning("Tidak ada foto yang cocok dengan kriteria pencarian atau filter.")

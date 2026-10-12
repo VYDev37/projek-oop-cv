@@ -1,23 +1,21 @@
 [project]
 name = "projek-oop"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sistem AI Image Analysis & Tagging Otomatis [I2]"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 dependencies = [
-    "easyocr>=1.7.0",
     "google-genai>=2.0.0",
-    "matplotlib>=3.8.0",
-    "numpy>=1.26.0",
-    "opencv-python>=4.8.0",
-    "openpyxl>=3.1.0",
-    "pandas>=2.2.0",
-    "pillow>=10.0.0",
     "pydantic>=2.10.0",
-    "python-dotenv>=1.0.0",
-    "requests>=2.31.0",
+    "pillow>=10.0.0",
     "streamlit>=1.40.0",
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "ultralytics>=8.3.0",
+    "pytest>=8.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["traffic_system_backup", ".venv", "data"]

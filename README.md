@@ -1,52 +1,60 @@
-# 🚦 Sistem Cerdas Pemantauan Lalu Lintas & Identifikasi Pengendara Real-Time
-### Berbasis Computer Vision (YOLOv8 + ByteTrack), EasyOCR & Integrasi Multimodal Google Gemini AI
+# 📸 Sistem AI Image Analysis & Tagging Otomatis [I2]
+### Platform Pemrosesan Citra Cerdas Berbasis Vision AI (Gemini / GPT-4o / Mock) & Prinsip Object-Oriented Programming (OOP)
 
-Sistem cerdas modular siap pakai (*production-grade*) berprinsip **Object-Oriented Programming (OOP)** untuk pemantauan lalu lintas real-time, penghitungan volume kendaraan (*line crossing*), inspeksi citra statis (ETLE snapshot), pemotongan otomatis area pengendara & plat nomor, ekstraksi nomor polisi via OCR, serta validasi mendalam kepatuhan atribut keselamatan dan keabsahan dokumen berkendara (SIM/STNK) menggunakan **Google Gemini AI Multimodal** dengan **Structured Outputs (Pydantic / JSON)**.
+Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang khusus untuk memenuhi **100% kriteria Rubrik Tugas Kuliah OOP [I2]**: Captioning naratif, Tagging kata kunci, Deteksi objek, Kategorisasi citra, Palet warna dominan, Ekstraksi teks OCR, Moderasi konten otomatis, dan Manajemen koleksi foto cerdas.
 
 ---
 
-## 🌟 Fitur Utama
+## 📋 Pemetaan 20 Fitur Rubrik [I2] ke Kode Sumber
 
-1. **Modul Computer Vision & Pelacakan (YOLOv8 + ByteTrack)**:
-   - **Deteksi Multi-Kelas Real-Time**: Mendukung kendaraan (`car`, `motorcycle`, `bus`, `truck`) dan manusia (`person` / pengendara).
-   - **Pelacakan Temporal ByteTrack**: Melacak lintasan pergerakan kendaraan dan merekam jejak posisi (*tracking trails*).
-   - **Penghitungan Garis Virtual (*Line Crossing*)**: Menghitung arus kendaraan yang melintasi garis hitung virtual secara presisi.
-   - **Inspeksi Citra Statis (*ETLE Snapshot*)**: Mendukung inspeksi foto langsung (unggah foto atau jepret kamera) tanpa memerlukan garis virtual atau pelacakan temporal.
-   - **Asosiasi Spasial Otomatis**: Menghubungkan posisi pengendara dengan unit sepeda motornya secara geometris.
-   - **Auto-Crop Resolusi Tinggi**: Memotong area tubuh/kepala pengendara dan area plat nomor untuk forensik digital.
+### A. Fitur Dasar & Analisis (1–10)
+| No | Kebutuhan Rubrik | Lokasi Implementasi | Penjelasan Teknis |
+|:---:|:---|:---|:---|
+| **1** | **Definisi `VisionClient` (ABC)** | `vision_client.py` (`VisionClient`) | Kelas abstrak berbasis `abc.ABC` dengan `@abstractmethod analyze()`. |
+| **2** | **`GeminiVisionClient extends VisionClient`** | `vision_client.py` (`GeminiVisionClient`) | Mengirim gambar ke Google GenAI SDK (`google-genai`), parse JSON ke skema terstruktur. |
+| **3** | **`MockVisionClient` (Mode Offline)** | `vision_client.py` (`MockVisionClient`) | Mode demo tanpa API key dan koneksi internet, deterministik & cepat. |
+| **4** | **Raise `VisionAPIException`** | `vision_client.py` (`VisionAPIException`) | Custom exception saat terjadi kegagalan jaringan, parsing JSON, atau API error. |
+| **5** | **`_encode_image()` (Base64)** | `vision_client.py` (`VisionClient._encode_image`) | Mengonversi file path, bytes, atau objek `PIL.Image` menjadi string base64 UTF-8. |
+| **6** | **`PhotoAnalysisResult`** | `vision_client.py` (`PhotoAnalysisResult`) | Pydantic Model: `caption`, `tags`, `objects`, `kategori`, `is_safe`, `colors`, `ocr_text`. |
+| **7** | **`analyze() -> PhotoAnalysisResult`** | Seluruh turunan `VisionClient` | Kontrak metode polimorfik yang mengembalikan objek `PhotoAnalysisResult`. |
+| **8** | **`ContentModerator` (Cek `is_safe`)** | `photo_collection.py` (`ContentModerator`) | Memeriksa nilai `is_safe` dan memfilter foto yang melanggar panduan konten. |
+| **9** | **`PhotoCollection.tambah()`** | `photo_collection.py` (`PhotoCollection.tambah`) | Menambahkan objek hasil analisis ke dalam koleksi internal. |
+| **10**| **Tampilkan caption & top tags (CLI)** | `cli.py` (`display_photo_result`) | Menampilkan format rapi caption, tags, objek, warna, dan status moderasi di terminal. |
 
-2. **Modul Visualisasi Grafis Terdedikasi (`visualizer.py`)**:
-   - Arsitektur terpisah (*Single Responsibility Principle*) untuk seluruh rendering grafis OpenCV.
-   - Indikator kepatuhan berkode warna: 🟩 **Hijau** (Patuh Aturan) dan 🟥 **Merah** (Pelanggaran / Tilang).
-   - Head-Up Display (HUD) transparan dinamis menampilkan metrik volume kendaraan real-time.
+### B. Fitur Koleksi & Manajemen Lanjutan (11–20)
+| No | Kebutuhan Rubrik | Lokasi Implementasi | Penjelasan Teknis |
+|:---:|:---|:---|:---|
+| **11**| **`PhotoCollection.cari_by_tag()`** | `photo_collection.py` (`PhotoCollection.cari_by_tag`) | Pencarian foto berdasarkan tag kata kunci secara *case-insensitive*. |
+| **12**| **`PhotoCollection.filter_kategori()`** | `photo_collection.py` (`PhotoCollection.filter_kategori`) | Memfilter daftar foto berdasarkan nama kategori (Alam, Makanan, Dokumen, dll). |
+| **13**| **Iterator pada `PhotoCollection`** | `photo_collection.py` (`PhotoCollectionIterator`) | Implementasi murni **Iterator Pattern** (`__iter__` dan `__next__`), mendukung `for p in collection`. |
+| **14**| **Statistik tag terpopuler (`Counter`)** | `photo_collection.py` (`PhotoCollection.get_popular_tags`) | Menggunakan `collections.Counter` untuk menghitung frekuensi tag paling banyak muncul. |
+| **15**| **Batch analysis (Banyak foto)** | `photo_collection.py` (`PhotoCollection.batch_analyze`) | Memproses sekumpulan foto sekaligus dengan penanganan error per-berkas. |
+| **16**| **`GPT4VisionClient extends VisionClient`** | `vision_client.py` (`GPT4VisionClient`) | Provider OpenAI Vision API (`gpt-4o`) dengan payload base64 JSON mode. |
+| **17**| **Komparasi hasil 2 provider** | `vision_client.py` (`ImageAnalysisService.compare_providers`) | Membandingkan caption, tag bersama (*shared tags*), dan tingkat keselarasan antar 2 AI. |
+| **18**| **Laporan moderasi (Safe vs Unsafe)** | `photo_collection.py` (`ContentModerator.generate_moderation_report`) | Rekapitulasi jumlah foto aman, foto tidak aman, dan persentase kepatuhan. |
+| **19**| **Ekspor koleksi ke CSV (SOLID: SRP)** | `photo_collection.py` (`CollectionCSVExporter`) | Kelas terpisah khusus penulisan file CSV agar mematuhi *Single Responsibility Principle*. |
+| **20**| **Design Pattern: Strategy** | `vision_client.py` (`ImageAnalysisService`) | Menukar provider Vision AI aktif secara dinamis saat runtime (`set_strategy`). |
 
-3. **Modul OCR & Ekstraksi Plat Nomor (EasyOCR)**:
-   - **Pra-pemrosesan Citra Digital Berlapis**: Konversi Grayscale, upscaling bicubic, CLAHE (*Contrast Limited Adaptive Histogram Equalization*), Bilateral Filtering, dan Otsu Adaptive Thresholding.
-   - **Pembersihan Regex & Normalisasi Karakter Ambigu**: Regex cerdas nomor polisi Indonesia (`[A-Z]{1,2} [0-9]{1,4} [A-Z]{1,3}`) yang mentoleransi dan memperbaiki kesalahan umum OCR (misal: 'O'/'D' ↔ '0', 'I'/'L' ↔ '1', 'B' ↔ '8', 'S' ↔ '5').
+---
 
-4. **Integrasi Google Gemini AI (SDK Resmi `google-genai`)**:
-   - Menggunakan model multimodal generasi terbaru (`gemini-2.5-flash` / `gemini-2.5-pro`).
-   - **Strict System Instruction**: Menjamin peran petugas kepolisian forensik yang objektif dan menolak gambar tidak valid (meme, kartun, citra non-dokumen).
-   - **Validasi Keselamatan Pengendara**: Mengevaluasi keberadaan helm, ketepatan pemasangan tali pengikat helm, jenis helm (Full-face, Half-face, Catok), jaket pelindung, tingkat keparahan (*severity*), dan rekomendasi tilang elektronik (*ETLE*).
-   - **Validasi Dokumen Berkendara (SIM/STNK)**: Ekstraksi nomor dokumen, nama pemilik, jenis kendaraan, masa berlaku (deteksi expired), serta pencocokan otomatis (*cross-check*) antara nomor plat di dokumen dengan hasil OCR kamera.
-   - **Structured Outputs**: Memanfaatkan skema terstruktur `Pydantic` (`RiderSafetyValidation` & `DocumentValidation`) via `response_schema` dan `application/json`.
-   - **Graceful Fallback**: Dilengkapi mode simulasi cerdas otomatis (*mock mode*) saat API key belum disetel sehingga sistem tetap dapat didemonstrasikan secara offline tanpa crash.
+## 🏛️ Konsep OOP yang Diterapkan
 
-5. **Manajemen Database & Ekspor Laporan (SQLite + Thread-Safe Concurrent Writes)**:
-   - Penyimpanan lokal terstruktur (`data/traffic_system.db`) dengan proteksi write-lock threading.
-   - Tabel: `traffic_logs`, `violations`, dan `document_validations`.
-   - Ekspor laporan satu-klik ke format **CSV** dan **Microsoft Excel (.xlsx)** dengan multi-sheet.
-
-6. **Antarmuka Pengguna Interaktif (Streamlit Dashboard) & Standalone CLI**:
-   - **Streamlit Web UI (`app.py`)**: Dashboard dengan 4 tab komprehensif:
-     - 📹 **Pemantauan & ETLE**: Demo video sampel, unggah video, webcam live, **unggah foto (JPG/PNG)**, dan **jepret foto langsung via kamera**.
-     - 📋 **Log Pelanggaran & Bukti**: Tinjau galeri foto bukti (*rider crop* & *plate crop*) beserta hasil telaah forensik Gemini AI. Unduh laporan langsung ke format Excel/CSV.
-     - 📄 **Validasi Dokumen (SIM/STNK)**: Unggah dokumen untuk verifikasi keaslian, masa berlaku, dan pencocokan nopol.
-     - 📊 **Statistik Lalu Lintas**: Metrik kepatuhan helm dan diagram batang analitik volume kendaraan.
-   - **CLI Runner (`main.py`)**: Runner mandiri untuk CCTV/Webcam dengan jendela visual OpenCV, penghitungan FPS, dan auto-logging.
-
-7. **Rangkaian Pengujian Unit Otomatis (`tests/`)**:
-   - Rangkaian pengujian berbasis `unittest` mencakup unit database (concurrency lock), model domain, pembersihan OCR, validasi skema Gemini, rendering grafis, hingga alur pipeline inspeksi statis.
+1. **Inheritance & Abstraction (ABC)**:
+   - `VisionClient(ABC)` sebagai kelas induk abstrak yang mewariskan fungsionalitas ke `GeminiVisionClient`, `GPT4VisionClient`, dan `MockVisionClient`.
+2. **Polymorphism**:
+   - Pemanggilan metode `client.analyze(image)` dieksekusi secara seragam terlepas dari provider konkret mana yang sedang aktif.
+3. **Exception Handling**:
+   - Kelas eksepsi terdedikasi `VisionAPIException` untuk menangkap galat API dan parsing data.
+4. **Design Pattern: Strategy Pattern**:
+   - `ImageAnalysisService` bertindak sebagai *Context* yang memegang objek strategi bertipe `VisionClient`.
+5. **Design Pattern: Iterator Pattern**:
+   - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python.
+6. **Prinsip SOLID**:
+   - **SRP (Single Responsibility Principle)**: Pemisahan tugas yang tegas antara analisis AI (`VisionClient`), penyimpanan koleksi (`PhotoCollection`), moderasi konten (`ContentModerator`), dan ekspor CSV (`CollectionCSVExporter`).
+   - **OCP (Open/Closed Principle)**: Menambah provider AI baru cukup membuat subclass baru turunan `VisionClient` tanpa perlu mengubah kode yang ada.
+   - **LSP & DIP (Liskov Substitution & Dependency Inversion)**: `ImageAnalysisService` bergantung pada abstraksi `VisionClient`, bukan implementasi konkretnya.
+7. **Unit Testing Pytest**:
+   - Rangkaian pengujian otomatis mandiri di folder `tests/` mencakup seluruh logika dan relasi kelas.
 
 ---
 
@@ -55,184 +63,122 @@ Sistem cerdas modular siap pakai (*production-grade*) berprinsip **Object-Orient
 ```text
 Projek OOP/
 │
-├── config.py                 # Pengaturan sentral (path direktori, confidence thresholds, nama model)
-├── domain_models.py          # Enum tipe-aman domain (VehicleType, ViolationType, HelmetStatus, dll.)
-├── database.py               # Pengelola database SQLite thread-safe dan ekspor CSV/Excel
-├── detector.py               # Deteksi YOLOv8, ByteTrack, & cropping pengendara/plat
-├── visualizer.py             # Rendering grafis anotasi bounding box, HUD, dan label kepatuhan
-├── ocr_engine.py             # Preprocessing citra digital & pembacaan EasyOCR plat nomor
-├── gemini_client.py          # Klien resmi google-genai dengan System Instruction & Skema Pydantic
-├── pipeline.py               # Orkestrator alur kerja terintegrasi & ThreadPool background worker
-├── app.py                    # Dashboard visual interaktif multi-tab berbasis Streamlit
-├── main.py                   # Runner mandiri CLI / OpenCV untuk kamera & CCTV
-├── generate_samples.py       # Generator data uji sintetis (plat nomor, STNK, foto pengendara, video)
-├── requirements.txt          # Daftar dependensi pustaka Python
-├── .env.example              # Template variabel lingkungan untuk Gemini API Key
+├── config.py                 # Pengaturan konfigurasi, environment variable & direktori data
+├── vision_client.py          # VisionClient (ABC), Gemini, GPT-4o, Mock, Exception, Strategy Service
+├── photo_collection.py       # PhotoCollection, Iterator Pattern, ContentModerator, CSV Exporter (SRP)
+├── cli.py                    # Runner baris perintah (CLI) untuk visualisasi hasil & demonstrasi lengkap
+├── app.py                    # Web UI Dashboard Interaktif multi-tab berbasis Streamlit
+├── generate_samples.py       # Pembuat gambar sampel sintetis (Alam, Makanan, Mobil, Dokumen, Unsafe)
+├── pyproject.toml            # Konfigurasi dependensi dan test runner pytest
+├── requirements.txt          # Daftar pustaka Python yang dibutuhkan
+├── .env                      # File konfigurasi API Key (GEMINI_API_KEY, OPENAI_API_KEY)
 ├── README.md                 # Dokumentasi teknis proyek
 │
-└── tests/                    # Rangkaian Unit Test Otomatis
-    ├── __init__.py
-    ├── test_database.py          # Pengujian thread concurrency & operasi SQLite
-    ├── test_domain_models.py     # Pengujian integritas Enum domain
-    ├── test_gemini_client.py     # Pengujian validasi skema Pydantic & pencocokan plat
-    ├── test_ocr_engine.py        # Pengujian preprocessing, regex, & normalisasi nopol
-    ├── test_visualizer.py        # Pengujian rendering grafis video & gambar statis
-    └── test_static_inspection.py # Pengujian deteksi statis & pipeline inspeksi ETLE
+├── data/                     # Penyimpanan data lokal
+│   ├── samples/              # Gambar sampel bawaan
+│   └── exports/              # File luaran ekspor CSV
+│
+├── tests/                    # Rangkaian Pengujian Otomatis Pytest
+│   ├── test_vision_client.py           # Uji ABC, Exception, Mock, Base64, Strategy Pattern
+│   ├── test_photo_collection.py        # Uji Koleksi, Cari Tag, Filter Kategori, Iterator, Counter
+│   └── test_moderator_and_exporter.py  # Uji ContentModerator dan CollectionCSVExporter (SRP)
+│
+└── traffic_system_backup/    # Arsip cadangan sistem traffic / ETLE sebelumnya (aman tersimpan)
 ```
 
 ---
 
 ## 🚀 Panduan Instalasi & Persiapan
 
-### 1. Prasyarat Lingkungan
-Pastikan Anda telah menginstal **Python versi 3.10** atau yang lebih baru. Disarankan menggunakan pengelola paket modern [`uv`](https://github.com/astral-sh/uv) atau `pip` standar.
+### 1. Prasyarat
+Pastikan komputer Anda memiliki **Python versi 3.10** atau yang lebih baru.
 
 ### 2. Instalasi Dependensi
-Buka terminal pada direktori proyek, lalu jalankan salah satu perintah:
+Jalankan salah satu perintah berikut di terminal:
 
-**Menggunakan `uv` (Sangat Cepat & Direkomendasikan):**
 ```bash
+# Menggunakan uv (direkomendasikan):
 uv pip install -r requirements.txt
-```
 
-**Menggunakan `pip` standar:**
-```bash
+# Atau menggunakan pip standar:
 pip install -r requirements.txt
 ```
 
-### 3. Konfigurasi Google Gemini API Key
-Dapatkan API Key gratis di [Google AI Studio](https://aistudio.google.com/).
-
-Salin berkas `.env.example` menjadi `.env`:
-```bash
-cp .env.example .env
-```
-*(Di Windows PowerShell: `Copy-Item .env.example .env`)*
-
+### 3. Konfigurasi API Key
 Buka berkas `.env` dan masukkan API Key Anda:
 ```env
 GEMINI_API_KEY=AIzaSy...
 GEMINI_MODEL=gemini-2.5-flash
 ```
-*(Catatan: Jika API Key tidak diisi, sistem otomatis mengaktifkan mode simulasi cerdas / mock mode agar Anda tetap dapat menguji fungsionalitas sistem secara offline).*
+*(Catatan: Jika API Key tidak disetel, sistem secara otomatis beralih ke `MockVisionClient` agar seluruh 20 fitur tetap dapat didemonstrasikan 100% tanpa internet).*
 
-### 4. Membuat Data Sampel Uji Coba
-Untuk menguji coba sistem tanpa memerlukan kamera fisik atau rekaman video eksternal, buat data sintetis bawaan:
+### 4. Menghasilkan Gambar Sampel
+Jalankan skrip generator sampel:
 ```bash
 uv run python generate_samples.py
 # atau: python generate_samples.py
 ```
-Perintah ini akan membuat citra plat standar, citra STNK resmi & kedaluwarsa, citra pengendara, serta video demo `sample_traffic.mp4` di dalam folder `data/samples/`.
 
 ---
 
 ## 💻 Cara Menjalankan Program
 
-### Opsi A: Menjalankan Dashboard Visual Streamlit (Sangat Direkomendasikan)
-Jalankan perintah:
+### A. Menjalankan Dashboard Web Streamlit (Rekomendasi Utama)
 ```bash
 uv run streamlit run app.py
 # atau: streamlit run app.py
 ```
 Buka peramban di alamat `http://localhost:8501`. Fitur yang tersedia:
-1. **Pemantauan & ETLE (Tab 1)**:
-   - **Mode Video**: Pilih *Demo Video Sampel*, *Unggah Berkas Video*, atau *Webcam / Kamera (Live)*.
-   - **Mode Foto Statis**: Pilih *Unggah Foto (Gambar)* atau *Ambil Foto Langsung (Kamera)*, lalu klik tombol **🔍 Proses Inspeksi ETLE (Deteksi & AI)** untuk menganalisis pelanggaran seluruh kendaraan dalam foto sekaligus.
-2. **Log Pelanggaran & Bukti (Tab 2)**: Tinjau galeri foto bukti (*rider crop* & *plate crop*) beserta catatan resmi kepolisian dari Gemini AI. Unduh rekapitulasi data ke format Excel/CSV.
-3. **Validasi Dokumen SIM/STNK (Tab 3)**: Unggah dokumen SIM/STNK untuk memvalidasi nomor polisi, masa berlaku, dan nama pemilik.
-4. **Statistik Lalu Lintas (Tab 4)**: Pantau grafik kepatuhan pengendara dan volume jenis kendaraan.
+1. **Tab 1 - Analisis Foto Tunggal**: Pilih provider (Strategy Pattern), unggah foto atau jepret kamera, lihat caption, tags, objek, warna, OCR, dan status moderasi.
+2. **Tab 2 - Analisis Batch**: Unggah banyak foto sekaligus untuk diproses secara massal dengan progress bar.
+3. **Tab 3 - Komparasi 2 Provider**: Bandingkan output Gemini vs GPT-4o / Mock berdampingan pada satu foto yang sama.
+4. **Tab 4 - Galeri Koleksi & Moderasi**: Cari foto by tag, filter per kategori, statistik 5 tag terpopuler (`Counter`), laporan moderasi (`safe` vs `unsafe`), dan tombol **Unduh CSV Koleksi**.
 
 ---
 
-### Opsi B: Menjalankan via Baris Perintah / CCTV Stream (CLI OpenCV)
+### B. Menjalankan via Baris Perintah (CLI)
+Anda dapat menjalankan demonstrasi lengkap atau menganalisis file foto di terminal:
 
-1. **Menjalankan pada Video Sampel Demo**:
+1. **Demonstrasi Otomatis Lengkap**:
    ```bash
-   uv run python main.py --demo
+   uv run python cli.py --demo
    ```
-
-2. **Menjalankan pada Webcam / Kamera Laptop**:
+2. **Menganalisis Berkas Foto Tertentu**:
    ```bash
-   uv run python main.py --source 0
+   uv run python cli.py --file "data/samples/pantai_sunset.jpg" --provider gemini
    ```
-
-3. **Menjalankan pada Berkas Video Tertentu**:
+3. **Komparasi 2 Provider di CLI**:
    ```bash
-   uv run python main.py --source "jalur_lalu_lintas.mp4"
+   uv run python cli.py --compare "data/samples/kopi_dan_roti.jpg"
    ```
-
-4. **Mode Headless (Untuk Server / Edge Device tanpa Layar Monitor)**:
-   ```bash
-   uv run python main.py --demo --headless --max-frames 150
-   ```
-
-*Tekan tombol **`q`** pada jendela video OpenCV untuk menghentikan program dan mengekspor laporan akhir.*
 
 ---
 
-## 🧪 Menjalankan Rangkaian Pengujian Unit (Unit Tests)
+## 🧪 Menjalankan Rangkaian Pengujian Pytest
 
-Proyek ini dilengkapi pengujian unit otomatis untuk memvalidasi integritas kode:
+Jalankan seluruh 18 pengujian unit terisolasi dengan perintah:
 
 ```bash
-uv run python -m unittest discover -s tests -p "test_*.py" -v
-# atau: python -m unittest discover -s tests -p "test_*.py" -v
+uv run pytest -v
+# atau: pytest -v
 ```
 
-Hasil pengujian mencakup 17 pengujian terisolasi:
-- Penulisan konkuren multithreading pada database SQLite
-- Konsistensi dan validasi nilai Enum domain
-- Parsing dan skema Pydantic Gemini AI
-- Ketahanan preprocessing dan regex pembersihan EasyOCR
-- Integritas output rendering citra visualizer
-- Deteksi statis YOLO dan pipeline orkestrasi ETLE
+Hasil pengujian mencakup:
+- ✅ `test_abc_cannot_be_instantiated`: Memastikan `VisionClient` adalah Abstract Base Class murni.
+- ✅ `test_mock_vision_client_inheritance`: Memverifikasi Polimorfisme subclass.
+- ✅ `test_encode_image_base64_integrity`: Memverifikasi encoding base64 UTF-8.
+- ✅ `test_custom_exception_handling`: Memverifikasi eksepsi `VisionAPIException`.
+- ✅ `test_strategy_pattern_execution_and_switching`: Memverifikasi Strategy Pattern runtime.
+- ✅ `test_compare_providers`: Memverifikasi komparasi 2 provider.
+- ✅ `test_tambah_photo`, `test_cari_by_tag`, `test_filter_kategori`: Memverifikasi manajemen koleksi.
+- ✅ `test_iterator_pattern`: Memverifikasi Iterator Pattern murni (`iter()`, `next()`, `StopIteration`).
+- ✅ `test_popular_tags_counter`: Memverifikasi statistik tag menggunakan `collections.Counter`.
+- ✅ `test_batch_analyze`: Memverifikasi pemrosesan batch.
+- ✅ `test_filter_safe_and_unsafe_photos`: Memverifikasi moderasi konten.
+- ✅ `test_generate_moderation_report`: Memverifikasi laporan moderasi.
+- ✅ `test_export_to_csv_integrity`: Memverifikasi ekspor CSV mematuhi prinsip SOLID (SRP).
 
 ---
 
-## 🔍 Skema Respon Terstruktur Gemini AI
-
-### 1. Skema Keselamatan Pengendara (`RiderSafetyValidation`)
-```json
-{
-  "is_helmet_present": false,
-  "helmet_worn_properly": false,
-  "helmet_type": "TIDAK_ADA",
-  "jacket_present": false,
-  "other_attributes": ["celana panjang", "sandal"],
-  "violation_detected": true,
-  "violation_reasons": [
-    "Pengendara terdeteksi tidak menggunakan helm pelindung kepala standar.",
-    "Tidak mengenakan jaket pelindung berkendara."
-  ],
-  "severity_level": "HIGH",
-  "confidence_score": 0.95,
-  "officer_notes": "Pelanggaran Pasal 106 ayat (8) jo Pasal 291 ayat (1) UU No. 22 Tahun 2009 tentang LLAJ.",
-  "recommended_action": "TILANG_ELEKTRONIK"
-}
-```
-
-### 2. Skema Validasi Dokumen STNK/SIM (`DocumentValidation`)
-```json
-{
-  "document_type": "STNK",
-  "document_number": "STNK-JKT-2024-88910",
-  "holder_name": "BUDI SANTOSO",
-  "registered_plate_number": "B 1234 ABC",
-  "vehicle_type_stated": "HONDA VARIO 160 CC",
-  "issue_date": "2023-05-12",
-  "expiry_date": "2028-05-12",
-  "is_document_valid": true,
-  "is_expired": false,
-  "confidence_score": 0.96,
-  "notes": "Data registrasi STNK terverifikasi aktif pada pangkalan data Korlantas Polri."
-}
-```
-
----
-
-## 🛡️ Keandalan Sistem & Arsitektur Perangkat Lunak
-
-- **Clean OOP & Separation of Concerns**: Pemisahan jelas antara layer deteksi (`detector.py`), layer visualisasi (`visualizer.py`), layer orkestrasi (`pipeline.py`), layer domain (`domain_models.py`), layer penyimpanan data (`database.py`), dan layer antarmuka (`app.py`, `main.py`).
-- **Asynchronous AI Workers**: Eksekusi API Gemini dan OCR dijalankan melalui `ThreadPoolExecutor` di background thread sehingga frame rate (FPS) pemutaran video tidak terblokir.
-- **Thread-Safe SQLite Transactions**: Memanfaatkan context manager khusus dengan proteksi threading lock (`threading.Lock`) dan batas timeout koneksi untuk mencegah isu *database locked* pada sistem multithread.
-- **Robust Temporary File Handling**: Mengatasi kendala Windows file locking saat pengunggahan berkas video dan eksekusi pengujian dengan penggunaan memory buffer dan temporary context.
+## 🔒 Catatan Keamanan Data Proyek Sebelumnya
+Seluruh kode sistem deteksi lalu lintas & ETLE sebelumnya telah dicadangkan secara utuh di dalam direktori `traffic_system_backup/` dan dapat diakses kapan saja untuk kebutuhan portofolio Anda.
