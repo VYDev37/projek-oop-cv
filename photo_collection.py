@@ -238,6 +238,7 @@ class CollectionCSVExporter:
             "colors",
             "ocr_text",
             "image_path",
+            "annotated_image_path",
             "processing_time_ms",
         ]
 
@@ -257,6 +258,7 @@ class CollectionCSVExporter:
                     "colors": ", ".join(p.colors),
                     "ocr_text": p.ocr_text or "-",
                     "image_path": p.image_path or "-",
+                    "annotated_image_path": getattr(p, "annotated_image_path", "") or "-",
                     "processing_time_ms": p.processing_time_ms,
                 })
 

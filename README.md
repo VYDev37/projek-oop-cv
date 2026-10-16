@@ -29,32 +29,32 @@ Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang kh
 | **13**| **Iterator pada `PhotoCollection`** | `photo_collection.py` (`PhotoCollectionIterator`) | Implementasi murni **Iterator Pattern** (`__iter__` dan `__next__`), mendukung `for p in collection`. |
 | **14**| **Statistik tag terpopuler (`Counter`)** | `photo_collection.py` (`PhotoCollection.get_popular_tags`) | Menggunakan `collections.Counter` untuk menghitung frekuensi tag paling banyak muncul. |
 | **15**| **Batch analysis (Banyak foto)** | `photo_collection.py` (`PhotoCollection.batch_analyze`) | Memproses sekumpulan foto sekaligus dengan penanganan error per-berkas. |
-| **16**| **`GPT4VisionClient extends VisionClient`** | `vision_client.py` (`GPT4VisionClient`) | Provider OpenAI Vision API (`gpt-4o`) dengan payload base64 JSON mode. |
-| **17**| **Komparasi hasil 2 provider** | `vision_client.py` (`ImageAnalysisService.compare_providers`) | Membandingkan caption, tag bersama (*shared tags*), dan tingkat keselarasan antar 2 AI. |
-| **18**| **Laporan moderasi (Safe vs Unsafe)** | `photo_collection.py` (`ContentModerator.generate_moderation_report`) | Rekapitulasi jumlah foto aman, foto tidak aman, dan persentase kepatuhan. |
+| **16**| **`YOLOv8VisionClient extends VisionClient`** | `vision_client.py` (`YOLOv8VisionClient`) | Provider Computer Vision lokal (YOLOv8 + EasyOCR) untuk deteksi objek, plat nomor, dan evaluasi helm. |
+| **17**| **Komparasi hasil 2 provider / engine** | `vision_client.py` (`ImageAnalysisService.compare_providers`) | Membandingkan caption, tag bersama (*shared tags*), dan tingkat keselarasan antar 2 AI/engine. |
+| **18**| **Laporan moderasi (Safe vs Unsafe)** | `photo_collection.py` (`ContentModerator.generate_moderation_report`) | Rekapitulasi jumlah foto tertib/aman, pelanggaran, dan persentase kepatuhan. |
 | **19**| **Ekspor koleksi ke CSV (SOLID: SRP)** | `photo_collection.py` (`CollectionCSVExporter`) | Kelas terpisah khusus penulisan file CSV agar mematuhi *Single Responsibility Principle*. |
-| **20**| **Design Pattern: Strategy** | `vision_client.py` (`ImageAnalysisService`) | Menukar provider Vision AI aktif secara dinamis saat runtime (`set_strategy`). |
+| **20**| **Design Pattern: Strategy** | `vision_client.py` (`ImageAnalysisService`) | Menukar engine Vision AI aktif secara dinamis saat runtime (`set_strategy`). |
 
 ---
 
 ## 🏛️ Konsep OOP yang Diterapkan
 
 1. **Inheritance & Abstraction (ABC)**:
-   - `VisionClient(ABC)` sebagai kelas induk abstrak yang mewariskan fungsionalitas ke `GeminiVisionClient`, `GPT4VisionClient`, dan `MockVisionClient`.
+   - `VisionClient(ABC)` sebagai kelas induk abstrak yang mewariskan fungsionalitas ke `YOLOv8VisionClient`, `GeminiVisionClient`, `GPT4VisionClient`, dan `MockVisionClient`.
 2. **Polymorphism**:
-   - Pemanggilan metode `client.analyze(image)` dieksekusi secara seragam terlepas dari provider konkret mana yang sedang aktif.
+   - Pemanggilan metode `client.analyze(image)` dieksekusi secara seragam terlepas dari provider/engine mana yang aktif.
 3. **Exception Handling**:
-   - Kelas eksepsi terdedikasi `VisionAPIException` untuk menangkap galat API dan parsing data.
+   - Kelas eksepsi terdedikasi `VisionAPIException` untuk menangkap galat inferensi, API, dan parsing data.
 4. **Design Pattern: Strategy Pattern**:
    - `ImageAnalysisService` bertindak sebagai *Context* yang memegang objek strategi bertipe `VisionClient`.
 5. **Design Pattern: Iterator Pattern**:
-   - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python.
+   - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python (`__iter__` dan `__next__`).
 6. **Prinsip SOLID**:
-   - **SRP (Single Responsibility Principle)**: Pemisahan tugas yang tegas antara analisis AI (`VisionClient`), penyimpanan koleksi (`PhotoCollection`), moderasi konten (`ContentModerator`), dan ekspor CSV (`CollectionCSVExporter`).
-   - **OCP (Open/Closed Principle)**: Menambah provider AI baru cukup membuat subclass baru turunan `VisionClient` tanpa perlu mengubah kode yang ada.
+   - **SRP (Single Responsibility Principle)**: Pemisahan tugas yang tegas antara analisis AI (`VisionClient`), penyimpanan koleksi (`PhotoCollection`), evaluasi keselamatan/moderasi (`ContentModerator`), dan ekspor CSV (`CollectionCSVExporter`).
+   - **OCP (Open/Closed Principle)**: Menambah engine baru cukup membuat subclass baru turunan `VisionClient` tanpa merombak kode yang ada.
    - **LSP & DIP (Liskov Substitution & Dependency Inversion)**: `ImageAnalysisService` bergantung pada abstraksi `VisionClient`, bukan implementasi konkretnya.
 7. **Unit Testing Pytest**:
-   - Rangkaian pengujian otomatis mandiri di folder `tests/` mencakup seluruh logika dan relasi kelas.
+   - Rangkaian 20 pengujian otomatis mandiri di folder `tests/` mencakup seluruh logika dan relasi kelas.
 
 ---
 
@@ -63,27 +63,35 @@ Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang kh
 ```text
 Projek OOP/
 │
-├── config.py                 # Pengaturan konfigurasi, environment variable & direktori data
-├── vision_client.py          # VisionClient (ABC), Gemini, GPT-4o, Mock, Exception, Strategy Service
+├── config.py                 # Pengaturan konfigurasi, YOLO, OCR, dan direktori data
+├── vision_client.py          # VisionClient (ABC), YOLOv8, Gemini, Mock, Strategy Service
 ├── photo_collection.py       # PhotoCollection, Iterator Pattern, ContentModerator, CSV Exporter (SRP)
-├── cli.py                    # Runner baris perintah (CLI) untuk visualisasi hasil & demonstrasi lengkap
-├── app.py                    # Web UI Dashboard Interaktif multi-tab berbasis Streamlit
-├── generate_samples.py       # Pembuat gambar sampel sintetis (Alam, Makanan, Mobil, Dokumen, Unsafe)
+├── pipeline.py               # Pipeline kontinu pelacakan kendaraan, crossing line & auto-log
+├── detector.py               # Detector YOLOv8 + ByteTrack untuk video streaming
+├── visualizer.py             # Renderer visualizer anotasi bounding box (SRP)
+├── ocr_engine.py             # Optical Character Recognition (EasyOCR) plat nomor
+├── database.py               # SQLite logging & pelaporan
+├── cli.py                    # Runner baris perintah (CLI) untuk demonstrasi lengkap
+├── app.py                    # Web UI Dashboard Interaktif 5 Tab berbasis Streamlit
+├── yolov8n.pt                # Bobot model YOLOv8 Nano
+├── generate_samples.py       # Pembuat gambar sampel sintetis
 ├── pyproject.toml            # Konfigurasi dependensi dan test runner pytest
 ├── requirements.txt          # Daftar pustaka Python yang dibutuhkan
-├── .env                      # File konfigurasi API Key (GEMINI_API_KEY, OPENAI_API_KEY)
+├── .env                      # File konfigurasi API Key
 ├── README.md                 # Dokumentasi teknis proyek
 │
 ├── data/                     # Penyimpanan data lokal
 │   ├── samples/              # Gambar sampel bawaan
+│   ├── annotated/            # Citra hasil deteksi beranotasi bounding box
+│   ├── evidence/             # Tangkapan bukti pengendara dan plat nomor
 │   └── exports/              # File luaran ekspor CSV
 │
-├── tests/                    # Rangkaian Pengujian Otomatis Pytest
-│   ├── test_vision_client.py           # Uji ABC, Exception, Mock, Base64, Strategy Pattern
+├── tests/                    # Rangkaian Pengujian Otomatis Pytest (20 Unit Tests)
+│   ├── test_vision_client.py           # Uji ABC, Exception, Mock, YOLOv8, Base64, Strategy Pattern
 │   ├── test_photo_collection.py        # Uji Koleksi, Cari Tag, Filter Kategori, Iterator, Counter
 │   └── test_moderator_and_exporter.py  # Uji ContentModerator dan CollectionCSVExporter (SRP)
 │
-└── traffic_system_backup/    # Arsip cadangan sistem traffic / ETLE sebelumnya (aman tersimpan)
+└── traffic_system_backup/    # Arsip cadangan sistem traffic sebelumnya
 ```
 
 ---
@@ -94,29 +102,18 @@ Projek OOP/
 Pastikan komputer Anda memiliki **Python versi 3.10** atau yang lebih baru.
 
 ### 2. Instalasi Dependensi
-Jalankan salah satu perintah berikut di terminal:
+Jalankan perintah berikut di terminal:
 
 ```bash
-# Menggunakan uv (direkomendasikan):
 uv pip install -r requirements.txt
-
-# Atau menggunakan pip standar:
-pip install -r requirements.txt
+# atau: pip install -r requirements.txt
 ```
 
-### 3. Konfigurasi API Key
-Buka berkas `.env` dan masukkan API Key Anda:
+### 3. Konfigurasi API Key (Opsional)
+Buka berkas `.env` dan masukkan API Key Google Gemini (opsional, sistem memiliki engine lokal YOLOv8 dan Mock):
 ```env
 GEMINI_API_KEY=AIzaSy...
 GEMINI_MODEL=gemini-2.5-flash
-```
-*(Catatan: Jika API Key tidak disetel, sistem secara otomatis beralih ke `MockVisionClient` agar seluruh 20 fitur tetap dapat didemonstrasikan 100% tanpa internet).*
-
-### 4. Menghasilkan Gambar Sampel
-Jalankan skrip generator sampel:
-```bash
-uv run python generate_samples.py
-# atau: python generate_samples.py
 ```
 
 ---
@@ -129,10 +126,11 @@ uv run streamlit run app.py
 # atau: streamlit run app.py
 ```
 Buka peramban di alamat `http://localhost:8501`. Fitur yang tersedia:
-1. **Tab 1 - Analisis Foto Tunggal**: Pilih provider (Strategy Pattern), unggah foto atau jepret kamera, lihat caption, tags, objek, warna, OCR, dan status moderasi.
-2. **Tab 2 - Analisis Batch**: Unggah banyak foto sekaligus untuk diproses secara massal dengan progress bar.
-3. **Tab 3 - Komparasi 2 Provider**: Bandingkan output Gemini vs GPT-4o / Mock berdampingan pada satu foto yang sama.
-4. **Tab 4 - Galeri Koleksi & Moderasi**: Cari foto by tag, filter per kategori, statistik 5 tag terpopuler (`Counter`), laporan moderasi (`safe` vs `unsafe`), dan tombol **Unduh CSV Koleksi**.
+1. **Tab 1 - Analisis Citra (Foto / Kamera)**: Upload gambar atau ambil foto langsung lewat webcam, pilih engine (YOLOv8 Local CV, Gemini, Mock), lihat bounding box, plat nomor OCR, caption, dan evaluasi kepatuhan aturan.
+2. **Tab 2 - Pemantauan Video & Live Stream**: Jalankan tracking video rekaman atau live webcam secara kontinu dengan garis hitung virtual (*virtual line crossing*) dan auto-logging ke koleksi.
+3. **Tab 3 - Analisis Batch**: Unggah banyak foto sekaligus untuk diproses secara massal dengan progress bar.
+4. **Tab 4 - Komparasi 2 Engine**: Bandingkan output YOLOv8 Local CV vs Gemini Multimodal AI pada citra yang sama.
+5. **Tab 5 - Galeri Koleksi & Moderasi**: Cari foto by tag, filter per kategori, statistik 5 tag terpopuler (`Counter`), laporan kepatuhan keselamatan, dan tombol **Unduh CSV Koleksi** (SOLID: SRP).
 
 ---
 
@@ -143,20 +141,24 @@ Anda dapat menjalankan demonstrasi lengkap atau menganalisis file foto di termin
    ```bash
    uv run python cli.py --demo
    ```
-2. **Menganalisis Berkas Foto Tertentu**:
+2. **Menganalisis Berkas Foto Tertentu dengan YOLOv8**:
    ```bash
-   uv run python cli.py --file "data/samples/pantai_sunset.jpg" --provider gemini
+   uv run python cli.py --file "data/samples/mobil_sedan.jpg" --provider yolo
    ```
-3. **Komparasi 2 Provider di CLI**:
+3. **Komparasi 2 Engine di CLI**:
    ```bash
    uv run python cli.py --compare "data/samples/kopi_dan_roti.jpg"
+   ```
+4. **Pemantauan Video di Terminal**:
+   ```bash
+   uv run python cli.py --video "path/ke/video.mp4"
    ```
 
 ---
 
 ## 🧪 Menjalankan Rangkaian Pengujian Pytest
 
-Jalankan seluruh 18 pengujian unit terisolasi dengan perintah:
+Jalankan seluruh 20 pengujian unit terisolasi dengan perintah:
 
 ```bash
 uv run pytest -v
@@ -165,17 +167,21 @@ uv run pytest -v
 
 Hasil pengujian mencakup:
 - ✅ `test_abc_cannot_be_instantiated`: Memastikan `VisionClient` adalah Abstract Base Class murni.
-- ✅ `test_mock_vision_client_inheritance`: Memverifikasi Polimorfisme subclass.
+- ✅ `test_mock_vision_client_inheritance`: Memverifikasi Polimorfisme subclass Mock.
+- ✅ `test_yolo_vision_client_inheritance`: Memverifikasi Polimorfisme subclass YOLOv8.
 - ✅ `test_encode_image_base64_integrity`: Memverifikasi encoding base64 UTF-8.
 - ✅ `test_custom_exception_handling`: Memverifikasi eksepsi `VisionAPIException`.
-- ✅ `test_strategy_pattern_execution_and_switching`: Memverifikasi Strategy Pattern runtime.
-- ✅ `test_compare_providers`: Memverifikasi komparasi 2 provider.
+- ✅ `test_mock_vision_client_analyze_safe` & `test_mock_vision_client_analyze_unsafe`: Verifikasi inferensi mock.
+- ✅ `test_yolo_vision_client_analyze`: Verifikasi inferensi deteksi objek YOLOv8 & anotasi bounding box.
+- ✅ `test_strategy_pattern_execution_and_switching`: Memverifikasi penukaran strategi runtime.
+- ✅ `test_strategy_type_enforcement`: Memverifikasi penolakan strategi yang bukan turunan `VisionClient`.
+- ✅ `test_compare_providers`: Memverifikasi komparasi 2 engine.
 - ✅ `test_tambah_photo`, `test_cari_by_tag`, `test_filter_kategori`: Memverifikasi manajemen koleksi.
 - ✅ `test_iterator_pattern`: Memverifikasi Iterator Pattern murni (`iter()`, `next()`, `StopIteration`).
 - ✅ `test_popular_tags_counter`: Memverifikasi statistik tag menggunakan `collections.Counter`.
 - ✅ `test_batch_analyze`: Memverifikasi pemrosesan batch.
-- ✅ `test_filter_safe_and_unsafe_photos`: Memverifikasi moderasi konten.
-- ✅ `test_generate_moderation_report`: Memverifikasi laporan moderasi.
+- ✅ `test_filter_safe_and_unsafe_photos`: Memverifikasi pemisahan data aman dan pelanggaran.
+- ✅ `test_generate_moderation_report`: Memverifikasi laporan kepatuhan/keselamatan.
 - ✅ `test_export_to_csv_integrity`: Memverifikasi ekspor CSV mematuhi prinsip SOLID (SRP).
 
 ---

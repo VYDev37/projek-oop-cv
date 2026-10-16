@@ -2,7 +2,7 @@
 Unit Test: tests/test_vision_client.py
 Deskripsi: Pengujian komprehensif untuk modul vision_client.py:
            1. Konsep ABC & Inheritance: Memastikan VisionClient tidak dapat diinstansiasi langsung.
-           2. Subclass Konkrit: MockVisionClient menghasilkan PhotoAnalysisResult valid.
+           2. Subclass Konkrit: MockVisionClient, YOLOv8VisionClient menghasilkan PhotoAnalysisResult valid.
            3. Custom Exception: VisionAPIException.
            4. Helper Encoding: _encode_image() menghasilkan base64 valid.
            5. Design Pattern: Strategy Pattern (ImageAnalysisService) dan komparasi provider.
@@ -15,6 +15,7 @@ from PIL import Image
 from vision_client import (
     VisionClient,
     MockVisionClient,
+    YOLOv8VisionClient,
     GPT4VisionClient,
     PhotoAnalysisResult,
     VisionAPIException,
@@ -35,6 +36,12 @@ class TestVisionClientCore:
         client = MockVisionClient()
         assert isinstance(client, VisionClient)
         assert client.model_name == "mock-vision-v1"
+
+    def test_yolo_vision_client_inheritance(self):
+        """Memastikan YOLOv8VisionClient adalah turunan polimorfik VisionClient."""
+        client = YOLOv8VisionClient()
+        assert isinstance(client, VisionClient)
+        assert client.model_name == "yolov8n"
 
     def test_encode_image_base64_integrity(self, tmp_path):
         """Memverifikasi fungsi _encode_image menghasilkan string base64 yang valid."""
@@ -84,6 +91,19 @@ class TestVisionClientCore:
         assert result.is_safe is False
         assert "unsafe" in result.tags
 
+    def test_yolo_vision_client_analyze(self):
+        """Menguji analisis gambar menggunakan YOLOv8VisionClient."""
+        client = YOLOv8VisionClient()
+        dummy_img = Image.new("RGB", (150, 150), color=(100, 150, 200))
+
+        result = client.analyze(dummy_img, image_name="mobil_uji.jpg")
+        assert isinstance(result, PhotoAnalysisResult)
+        assert "YOLOv8" in result.provider
+        assert result.caption != ""
+        assert isinstance(result.tags, list)
+        assert isinstance(result.boxes, list)
+        assert Path(result.annotated_image_path).exists()
+
 
 class TestStrategyPattern:
     """Pengujian implementasi Strategy Pattern."""
@@ -91,7 +111,7 @@ class TestStrategyPattern:
     def test_strategy_pattern_execution_and_switching(self):
         """Memverifikasi penukaran strategi runtime pada ImageAnalysisService."""
         mock_strategy = MockVisionClient(model_name="mock-primary")
-        gpt4_strategy = GPT4VisionClient(model_name="gpt-4o-secondary")
+        yolo_strategy = YOLOv8VisionClient(model_name="yolov8n-secondary")
 
         service = ImageAnalysisService(strategy=mock_strategy)
         assert service.strategy == mock_strategy
@@ -104,12 +124,12 @@ class TestStrategyPattern:
         assert res1.kategori == "Makanan"
 
         # Tukar strategi secara dinamis saat runtime (OCP / DIP)
-        service.set_strategy(gpt4_strategy)
-        assert service.strategy == gpt4_strategy
+        service.set_strategy(yolo_strategy)
+        assert service.strategy == yolo_strategy
 
-        # Analisis dengan strategi baru
+        # Analisis dengan strategi baru (YOLO)
         res2 = service.analyze_image(dummy_img, image_name="kopi_pagi.jpg")
-        assert "OpenAI" in res2.provider
+        assert "YOLOv8" in res2.provider
 
     def test_strategy_type_enforcement(self):
         """Memastikan set_strategy menolak objek yang bukan turunan VisionClient."""
@@ -121,7 +141,7 @@ class TestStrategyPattern:
         """Pengujian perbandingan 2 provider berdampingan."""
         service = ImageAnalysisService()
         client_a = MockVisionClient()
-        client_b = GPT4VisionClient()
+        client_b = YOLOv8VisionClient()
 
         dummy_img = Image.new("RGB", (100, 100), color=(50, 50, 200))
         comparison = service.compare_providers(dummy_img, client_a, client_b, image_name="mobil_sport.jpg")

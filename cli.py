@@ -1,7 +1,7 @@
 """
 Module: cli.py
 Deskripsi: Antarmuka baris perintah (CLI) untuk Sistem AI Image Analysis & Tagging Otomatis [I2].
-           Menampilkan caption & top tags per foto (CLI),
+           Menampilkan caption, top tags, objek, plat nomor per foto (CLI),
            serta menyediakan demonstrasi interaktif untuk seluruh fitur sistem.
 """
 
@@ -11,6 +11,8 @@ from pathlib import Path
 
 from config import SAMPLES_DIR, EXPORTS_DIR, GEMINI_API_KEY
 from vision_client import (
+    VisionClient,
+    YOLOv8VisionClient,
     GeminiVisionClient,
     GPT4VisionClient,
     MockVisionClient,
@@ -34,17 +36,17 @@ except Exception:
 def print_banner():
     """Mencetak banner selamat datang di terminal."""
     print("=" * 70)
-    print(" [I2] SISTEM AI IMAGE ANALYSIS & TAGGING OTOMATIS")
+    print(" [I2] SISTEM COMPUTER VISION & AI IMAGE ANALYSIS / TRAFFIC MONITORING")
     print(" Berbasis OOP (ABC, Polymorphism, Strategy & Iterator Patterns, SOLID)")
     print("=" * 70)
 
 
 def display_photo_result(result: PhotoAnalysisResult):
     """
-    Tampilkan caption & top tags per foto di CLI.
+    Tampilkan caption, top tags, objek, dan plat nomor per foto di CLI.
     """
     print("\n" + "-" * 60)
-    status_icon = "[AMAN / SAFE]" if result.is_safe else "[PERINGATAN: UNSAFE]"
+    status_icon = "[AMAN / SAFE]" if result.is_safe else "[PERINGATAN: UNSAFE / PELANGGARAN]"
     print(f"Berkas       : {result.image_path}")
     print(f"Provider     : {result.provider}")
     print(f"Waktu Proses : {result.processing_time_ms} ms")
@@ -55,7 +57,9 @@ def display_photo_result(result: PhotoAnalysisResult):
     print(f"Objek Fisik  : {', '.join(result.objects)}")
     print(f"Palet Warna  : {', '.join(result.colors)}")
     if result.ocr_text:
-        print(f"Teks OCR     : {result.ocr_text}")
+        print(f"Plat OCR     : {result.ocr_text}")
+    if result.annotated_image_path:
+        print(f"Anotasi CV   : {result.annotated_image_path}")
     print("-" * 60)
 
 
@@ -64,18 +68,17 @@ def run_demo():
     print_banner()
     print("\n>>> Memulai Demonstrasi Otomatis Seluruh Fitur [I2]...\n")
 
-    service = ImageAnalysisService()
-    print("1. [Strategy Pattern] Strategi awal: MockVisionClient")
+    # 1. Strategy Pattern
+    yolo_client = YOLOv8VisionClient()
+    service = ImageAnalysisService(strategy=yolo_client)
+    print(f"1. [Strategy Pattern] Strategi aktif awal: {service.strategy.__class__.__name__}")
 
     if GEMINI_API_KEY:
         try:
             gemini_client = GeminiVisionClient()
-            service.set_strategy(gemini_client)
-            print("   -> GEMINI_API_KEY terdeteksi! Strategi aktif dialihkan ke GeminiVisionClient.")
+            print("   -> GEMINI_API_KEY terdeteksi dan siap digunakan sebagai strategi alternatif.")
         except Exception:
-            print("   -> Menggunakan MockVisionClient untuk demonstrasi stabil.")
-    else:
-        print("   -> GEMINI_API_KEY belum disetel, menggunakan MockVisionClient.")
+            pass
 
     sample_files = list(SAMPLES_DIR.glob("*.jpg"))
     if not sample_files:
@@ -87,7 +90,8 @@ def run_demo():
     collection = PhotoCollection()
     moderator = ContentModerator()
 
-    print(f"\n2. [Batch Analysis] Menganalisis {len(sample_files)} gambar sampel sekaligus:", flush=True)
+    # 2. Batch Analysis & Polimorfisme
+    print(f"\n2. [Batch Analysis] Menganalisis {len(sample_files)} gambar sampel via YOLOv8 & Mock:")
     for idx, f in enumerate(sample_files, start=1):
         print(f"\n   [{idx}/{len(sample_files)}] Memproses {f.name} via {service.strategy.__class__.__name__}...", flush=True)
         try:
@@ -97,45 +101,58 @@ def run_demo():
         except VisionAPIException as e:
             print(f"[ERROR] Gagal menganalisis {f.name}: {e}", flush=True)
 
-    print("\n3. [Iterator Pattern] Mengiterasi koleksi secara native:")
+    # 3. Iterator Pattern
+    print("\n3. [Iterator Pattern] Mengiterasi koleksi secara native via for-loop:")
     for idx, photo in enumerate(collection, start=1):
-        print(f"   [{idx}/{len(collection)}] {photo.kategori} -> {photo.caption[:45]}...")
+        print(f"   [{idx}/{len(collection)}] {photo.kategori} -> {photo.caption[:50]}...")
 
-    query_tag = "sunset"
+    # 4. Pencarian Tag
+    query_tag = "motorcycle"
     print(f"\n4. [Pencarian Tag] Mencari foto dengan tag '{query_tag}':")
     found_by_tag = collection.cari_by_tag(query_tag)
+    if not found_by_tag:
+        query_tag = "alam"
+        found_by_tag = collection.cari_by_tag(query_tag)
     print(f"   Ditemukan {len(found_by_tag)} foto.")
     for p in found_by_tag:
         print(f"   - {p.caption} (Tags: {p.tags})")
 
-    query_kat = "Makanan"
+    # 5. Filter Kategori
+    query_kat = "Patuhi Aturan"
     print(f"\n5. [Filter Kategori] Memfilter foto kategori '{query_kat}':")
     found_by_kat = collection.filter_kategori(query_kat)
+    if not found_by_kat and collection:
+        query_kat = collection[0].kategori
+        found_by_kat = collection.filter_kategori(query_kat)
     print(f"   Ditemukan {len(found_by_kat)} foto.")
     for p in found_by_kat:
         print(f"   - {p.caption}")
 
+    # 6. Statistik Tag Terpopuler (Counter)
     print("\n6. [Statistik Counter] 5 Tag Paling Sering Muncul:")
     popular_tags = collection.get_popular_tags(top_n=5)
     for rank, (tag, count) in enumerate(popular_tags, start=1):
         print(f"   #{rank} {tag} : {count} kali")
 
-    print("\n7. [Content Moderator] Laporan Keamanan Koleksi:")
+    # 7. Content Moderator
+    print("\n7. [Content Moderator] Laporan Kepatuhan / Keselamatan Koleksi:")
     report = moderator.generate_moderation_report(collection)
     print(f"   Total Foto  : {report['total_photos']}")
-    print(f"   Foto Aman   : {report['safe_count']}")
-    print(f"   Foto Unsafe : {report['unsafe_count']}")
+    print(f"   Foto Tertib : {report['safe_count']}")
+    print(f"   Pelanggaran : {report['unsafe_count']}")
+    print(f"   Kepatuhan   : {report['safe_rate_percentage']}%")
     print(f"   Status      : {report['status']}")
 
-    print("\n8. [Komparasi 2 Provider] Membandingkan Gemini vs Mock / GPT-4o:")
+    # 8. Komparasi 2 Engine Berbeda
+    print("\n8. [Komparasi 2 Engine] Membandingkan YOLOv8 vs Mock Vision:")
     mock_client = MockVisionClient()
-    gpt4_client = GPT4VisionClient()
-    comp_result = service.compare_providers(sample_files[0], mock_client, gpt4_client)
-    print(f"   Provider A ({comp_result['provider_a']['name']}) Caption: {comp_result['provider_a']['caption']}")
-    print(f"   Provider B ({comp_result['provider_b']['name']}) Caption: {comp_result['provider_b']['caption']}")
+    comp_result = service.compare_providers(sample_files[0], yolo_client, mock_client)
+    print(f"   Engine A ({comp_result['provider_a']['name']}) Caption: {comp_result['provider_a']['caption']}")
+    print(f"   Engine B ({comp_result['provider_b']['name']}) Caption: {comp_result['provider_b']['caption']}")
     print(f"   Shared Tags: {comp_result['shared_tags']}")
     print(f"   Tingkat Keselarasan Tag: {comp_result['tag_agreement_rate']}%")
 
+    # 9. SOLID SRP: CSV Exporter
     print("\n9. [SOLID: SRP] Mengekspor Koleksi ke CSV:")
     exporter = CollectionCSVExporter()
     out_csv = EXPORTS_DIR / "koleksi_demo.csv"
@@ -143,14 +160,47 @@ def run_demo():
     print(f"   [SUKSES] Berkas CSV berhasil disimpan di: {saved_path}")
 
     print("\n" + "=" * 70)
-    print(" [SELESAI] DEMONSTRASI 20 FITUR SELESAI DENGAN SUKSES!")
+    print(" [SELESAI] DEMONSTRASI SELURUH FITUR SELESAI DENGAN SUKSES!")
     print("=" * 70 + "\n")
+
+
+def run_video_cli(video_path: str):
+    """Menjalankan pemrosesan video di terminal via OpenCV window."""
+    import cv2
+    from pipeline import TrafficMonitoringPipeline
+
+    print_banner()
+    print(f"\n>>> Memulai Pemantauan Video: {video_path}")
+    print("Tekan tombol 'q' pada jendela video untuk berhenti.\n")
+
+    pipeline = TrafficMonitoringPipeline()
+    cap = cv2.VideoCapture(int(video_path) if video_path.isdigit() else video_path)
+
+    if not cap.isOpened():
+        print(f"[ERROR] Gagal membuka video: {video_path}")
+        return
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_resized = cv2.resize(frame, (960, 540))
+        annotated = pipeline.process_frame(frame_resized)
+
+        cv2.imshow("Traffic Monitoring CLI [I2]", annotated)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    print("\n[INFO] Pemantauan video selesai.")
 
 
 def main():
     """Fungsi utama titik masuk CLI."""
     parser = argparse.ArgumentParser(
-        description="Sistem AI Image Analysis & Tagging Otomatis [I2] - CLI Runner"
+        description="Sistem Computer Vision & AI Image Analysis / Traffic Monitoring [I2] - CLI Runner"
     )
     parser.add_argument(
         "--demo",
@@ -163,25 +213,36 @@ def main():
         help="Jalur berkas foto yang ingin dianalisis",
     )
     parser.add_argument(
+        "--video",
+        type=str,
+        help="Jalur berkas video atau indeks kamera (misal: 0) untuk streaming video",
+    )
+    parser.add_argument(
         "--provider",
         type=str,
-        choices=["gemini", "gpt4", "mock"],
-        default="mock",
-        help="Pilihan provider Vision AI (default: mock)",
+        choices=["yolo", "gemini", "mock", "gpt4"],
+        default="yolo",
+        help="Pilihan engine Vision AI (default: yolo)",
     )
     parser.add_argument(
         "--compare",
         type=str,
-        help="Bandingkan 2 provider pada satu berkas citra",
+        help="Bandingkan 2 provider/engine pada satu berkas citra",
     )
 
     args = parser.parse_args()
+
+    if args.video:
+        run_video_cli(args.video)
+        return
 
     if args.demo or len(sys.argv) == 1:
         run_demo()
         return
 
-    if args.provider == "gemini":
+    if args.provider == "yolo":
+        client = YOLOv8VisionClient()
+    elif args.provider == "gemini":
         client = GeminiVisionClient()
     elif args.provider == "gpt4":
         client = GPT4VisionClient()
@@ -196,8 +257,8 @@ def main():
         if not target.exists():
             print(f"[ERROR] Berkas tidak ditemukan: {target}")
             return
-        p1 = GeminiVisionClient() if GEMINI_API_KEY else MockVisionClient()
-        p2 = GPT4VisionClient()
+        p1 = YOLOv8VisionClient()
+        p2 = GeminiVisionClient() if GEMINI_API_KEY else MockVisionClient()
         comp = service.compare_providers(target, p1, p2)
         print(f"\nKomparasi Citra: {target.name}")
         print(f"[{comp['provider_a']['name']}]: {comp['provider_a']['caption']}")
