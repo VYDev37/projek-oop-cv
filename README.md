@@ -162,9 +162,9 @@ Akses di browser pada alamat `http://localhost:8501`. Fitur 4 Tab mencakup:
 
 ---
 
-## 🧪 Rangkaian Pengujian Pytest (32 Unit Tests)
+## 🧪 Rangkaian Pengujian Pytest
 
-Rangkaian 32 pengujian otomatis terisolasi telah disiapkan pada folder `tests/` untuk memverifikasi fungsionalitas normal maupun **skenario kasus salah (Negative Testing / Exception Handling)**:
+Rangkaian pengujian otomatis terisolasi telah disiapkan pada folder `tests/` untuk memverifikasi fungsionalitas normal maupun **skenario kasus salah (Negative Testing / Exception Handling)**:
 
 ```bash
 uv run pytest -v
