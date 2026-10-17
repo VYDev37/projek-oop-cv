@@ -364,12 +364,8 @@ def display_interactive_menu() -> None:
             print("2. Google Gemini Vision (Cloud Multimodal AI)")
             print("3. Mock Vision Engine (Offline Simulation)")
             e_choice = input("Pilihan [1-3]: ").strip()
-            if e_choice == "2":
-                app_service.set_strategy(GeminiVisionClient())
-            elif e_choice == "3":
-                app_service.set_strategy(MockVisionClient())
-            else:
-                app_service.set_strategy(YOLOv8VisionClient())
+            provider_name = {"2": "gemini", "3": "mock"}.get(e_choice, "yolo")
+            app_service.set_strategy(VisionClientFactory.create(provider_name))
             print(f"✅ Strategi aktif saat ini: {app_service.strategy.__class__.__name__}")
 
         elif choice == "0":
