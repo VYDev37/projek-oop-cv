@@ -144,6 +144,11 @@ def resolve_video_source(args: argparse.Namespace) -> Union[int, str]:
 
 def run_video_stream(source: Union[int, str], line_ratio: float, headless: bool, max_frames: int = 0) -> None:
     """Menjalankan loop pemantauan aliran video realtime dengan OpenCV."""
+    # Lazy import: modul berat (OpenCV, YOLO, OCR) hanya dimuat untuk mode video,
+    # sehingga analisis foto (Mock/Gemini/GPT-4) tidak membutuhkannya.
+    import cv2
+    from pipeline import pipeline
+           
     logger.info("=" * 70)
     logger.info("MEMULAI PEMANTAUAN LALU LINTAS COMPUTER VISION REAL-TIME")
     logger.info("Sumber Video   : %s", source)
