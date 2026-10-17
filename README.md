@@ -88,7 +88,9 @@ Implementasi terintegrasi ke dalam studi kasus nyata pemantauan lalu lintas dan 
    - `ImageAnalysisService` bertindak sebagai *Context* yang memegang objek strategi `VisionClient` dan dapat ditukar kapan saja saat runtime.
 5. **Design Pattern: Iterator Pattern**:
    - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python (`__iter__` dan `__next__`, melempar `StopIteration` saat habis).
-6. **Prinsip SOLID**:
+6. **Design Pattern: Factory Pattern**:
+   - `VisionClientFactory.create(nama)` membuat provider tanpa pemanggil mengetahui kelas konkritnya; dipakai oleh CLI (`main.py`).
+7. **Prinsip SOLID**:
    - **SRP (Single Responsibility Principle)**: `ContentModerator` hanya bertanggung jawab atas kepatuhan/moderasi, `CollectionCSVExporter` hanya bertanggung jawab atas I/O ekspor CSV, dan `PhotoCollection` hanya mengelola struktur data koleksi.
    - **OCP (Open/Closed Principle)**: Menambah engine baru cukup membuat subclass baru turunan `VisionClient` tanpa mengubah kode layanan (`ImageAnalysisService`).
    - **LSP & DIP (Liskov Substitution & Dependency Inversion)**: `ImageAnalysisService` bergantung pada abstraksi `VisionClient`, bukan implementasi konkretnya.
