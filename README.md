@@ -19,6 +19,7 @@ Seluruh 20 butir rubrik penilaian tugas besar diimplementasikan pada modul inti 
   - `YOLOv8VisionClient`: Engine Computer Vision lokal berbasis YOLOv8 + EasyOCR.
   - `VisionAPIException`: Custom exception handling untuk kegagalan komunikasi, input invalid, dan error parsing JSON.
   - `PhotoAnalysisResult`: Pydantic data model terstruktur (`caption`, `tags`, `objects`, `kategori`, `is_safe`, `colors`, `ocr_text`).
+  - `VisionClientFactory`: Penerapan **Factory Pattern** (`create("mock" | "gemini" | "gpt4" | "yolo")`, `register()` untuk provider baru).
   - `ImageAnalysisService`: Penerapan **Strategy Pattern** untuk penukaran engine AI secara dinamis saat runtime (`set_strategy`) dan komparasi hasil 2 provider (`compare_providers`).
 - **`photo_collection.py`**:
   - `PhotoCollection`: Kelas agregat penyimpan koleksi foto, pencarian tag (`cari_by_tag`), filter kategori (`filter_kategori`), dan pemrosesan batch (`batch_analyze`).
