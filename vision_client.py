@@ -13,8 +13,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-import cv2
-import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
