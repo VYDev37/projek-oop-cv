@@ -1,7 +1,45 @@
 # 📸 Sistem AI Image Analysis & Tagging Otomatis [I2]
-### Platform Pemrosesan Citra Cerdas Berbasis Vision AI (Gemini / GPT-4o / Mock) & Prinsip Object-Oriented Programming (OOP)
+### Platform Pemrosesan Citra Cerdas Berbasis Vision AI & Object-Oriented Programming (OOP)
 
-Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang khusus untuk memenuhi **100% kriteria Rubrik Tugas Kuliah OOP [I2]**: Captioning naratif, Tagging kata kunci, Deteksi objek, Kategorisasi citra, Palet warna dominan, Ekstraksi teks OCR, Moderasi konten otomatis, dan Manajemen koleksi foto cerdas.
+Sistem perangkat lunak modular yang dirancang secara presisi untuk memenuhi **100% kriteria Rubrik Tugas Besar Pemrograman Berorientasi Objek (OOP) Topik [I2]**: Captioning naratif, Tagging kata kunci, Deteksi objek, Kategorisasi citra, Palet warna dominan, Ekstraksi teks OCR, Moderasi konten otomatis, dan Manajemen koleksi foto cerdas.
+
+---
+
+## 🏛️ Arsitektur Proyek: Modul Inti Rubrik vs Modul Ekstensi
+
+Untuk memudahkan pengujian dan penilaian akademis oleh dosen/penilai, struktur kode dipisahkan menjadi dua bagian yang jelas:
+
+### 📦 1. Modul Inti Rubrik [I2] (Fokus Utama Penilaian Rubrik)
+Seluruh 20 butir rubrik penilaian tugas besar diimplementasikan pada modul inti ini:
+- **`vision_client.py`**:
+  - `VisionClient(ABC)`: Abstract Base Class dengan kontrak polimorfik `@abstractmethod def analyze()`.
+  - `GeminiVisionClient`: Integrasi Google GenAI SDK dengan structured JSON response.
+  - `MockVisionClient`: Mode offline deterministik tanpa memerlukan API key untuk demo/testing.
+  - `GPT4VisionClient`: Integrasi OpenAI Vision API via HTTP payload dengan fallback simulasi cerdas.
+  - `YOLOv8VisionClient`: Engine Computer Vision lokal berbasis YOLOv8 + EasyOCR.
+  - `VisionAPIException`: Custom exception handling untuk kegagalan komunikasi, input invalid, dan error parsing JSON.
+  - `PhotoAnalysisResult`: Pydantic data model terstruktur (`caption`, `tags`, `objects`, `kategori`, `is_safe`, `colors`, `ocr_text`).
+  - `ImageAnalysisService`: Penerapan **Strategy Pattern** untuk penukaran engine AI secara dinamis saat runtime (`set_strategy`) dan komparasi hasil 2 provider (`compare_providers`).
+- **`photo_collection.py`**:
+  - `PhotoCollection`: Kelas agregat penyimpan koleksi foto, pencarian tag (`cari_by_tag`), filter kategori (`filter_kategori`), dan pemrosesan batch (`batch_analyze`).
+  - `PhotoCollectionIterator`: Penerapan **Iterator Pattern** native (`__iter__` dan `__next__`).
+  - `get_popular_tags()`: Statistik frekuensi tag terpopuler berbasis `collections.Counter`.
+  - `ContentModerator`: Pengecekan kelayakan publik (`is_safe`), filter foto unsafe, dan penyusunan laporan moderasi (`generate_moderation_report`).
+  - `CollectionCSVExporter`: Penulisan berkas ekspor CSV yang terisolasi mematuhi prinsip **SOLID (Single Responsibility Principle)**.
+- **`cli.py` & `main.py`**:
+  - Antarmuka baris perintah (CLI) interaktif dan otomatis.
+  - Fungsi `display_photo_result(result, top_n_tags=5)`: Menampilkan caption naratif dan top tag teratas per foto sesuai spesifikasi rubrik.
+- **`tests/`**:
+  - Rangkaian pengujian otomatis **32 Unit Tests di Pytest** yang menguji seluruh fungsionalitas dan skenario kasus negatif (*pytest.raises*).
+
+### 🚀 2. Modul Ekstensi Sistem Lalu Lintas Cerdas (Studi Kasus Nyata / Nilai Tambah)
+Implementasi terintegrasi ke dalam studi kasus nyata pemantauan lalu lintas dan penegakan hukum elektronik (ETLE):
+- **`pipeline.py`**: Pipeline pemrosesan frame video, deteksi garis hitung virtual, dan auto-logging ke koleksi foto.
+- **`detector.py`**: Pelacakan objek multi-kelas (mobil, motor, bus, truk, orang) berbasis YOLOv8 dan ByteTrack.
+- **`ocr_engine.py`**: Pipeline pra-pemrosesan citra plat nomor (Grayscale, Upscale, CLAHE, Denoising, Otsu) dan EasyOCR.
+- **`visualizer.py`**: Visualizer anotasi bounding box dan label visual.
+- **`database.py`**: Manajemen basis data SQLite multi-tabel (`traffic_logs`, `violations`, `document_validations`).
+- **`app.py`**: Dashboard Web interaktif Streamlit 4 Tab otentik.
 
 ---
 
@@ -12,26 +50,26 @@ Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang kh
 |:---:|:---|:---|:---|
 | **1** | **Definisi `VisionClient` (ABC)** | `vision_client.py` (`VisionClient`) | Kelas abstrak berbasis `abc.ABC` dengan `@abstractmethod analyze()`. |
 | **2** | **`GeminiVisionClient extends VisionClient`** | `vision_client.py` (`GeminiVisionClient`) | Mengirim gambar ke Google GenAI SDK (`google-genai`), parse JSON ke skema terstruktur. |
-| **3** | **`MockVisionClient` (Mode Offline)** | `vision_client.py` (`MockVisionClient`) | Mode demo tanpa API key dan koneksi internet, deterministik & cepat. |
-| **4** | **Raise `VisionAPIException`** | `vision_client.py` (`VisionAPIException`) | Custom exception saat terjadi kegagalan jaringan, parsing JSON, atau API error. |
+| **3** | **`MockVisionClient` (Mode Offline)** | `vision_client.py` (`MockVisionClient`) | Mode demo tanpa API key dan tanpa internet, deterministik & cepat. |
+| **4** | **Raise `VisionAPIException` saat error / parse gagal** | `vision_client.py` (`VisionAPIException`) | Custom exception saat terjadi kegagalan jaringan, parsing JSON rusak (422), berkas hilang, atau input tidak didukung. |
 | **5** | **`_encode_image()` (Base64)** | `vision_client.py` (`VisionClient._encode_image`) | Mengonversi file path, bytes, atau objek `PIL.Image` menjadi string base64 UTF-8. |
 | **6** | **`PhotoAnalysisResult`** | `vision_client.py` (`PhotoAnalysisResult`) | Pydantic Model: `caption`, `tags`, `objects`, `kategori`, `is_safe`, `colors`, `ocr_text`. |
 | **7** | **`analyze() -> PhotoAnalysisResult`** | Seluruh turunan `VisionClient` | Kontrak metode polimorfik yang mengembalikan objek `PhotoAnalysisResult`. |
-| **8** | **`ContentModerator` (Cek `is_safe`)** | `photo_collection.py` (`ContentModerator`) | Memeriksa nilai `is_safe` dan memfilter foto yang melanggar panduan konten. |
-| **9** | **`PhotoCollection.tambah()`** | `photo_collection.py` (`PhotoCollection.tambah`) | Menambahkan objek hasil analisis ke dalam koleksi internal. |
-| **10**| **Tampilkan caption & top tags (CLI)** | `cli.py` (`display_photo_result`) | Menampilkan format rapi caption, tags, objek, warna, dan status moderasi di terminal. |
+| **8** | **`ContentModerator` (Cek `is_safe` & filter unsafe)** | `photo_collection.py` (`ContentModerator`) | Evaluasi kelayakan publik (aman vs konten tidak pantas/sensitif/berbahaya) dan filter foto unsafe. |
+| **9** | **`PhotoCollection.tambah()`** | `photo_collection.py` (`PhotoCollection.tambah`) | Menambahkan objek hasil analisis ke dalam koleksi internal dengan validasi tipe. |
+| **10**| **Tampilkan caption & top tags per foto (CLI)** | `cli.py` / `main.py` (`display_photo_result`) | Menampilkan format rapi caption naratif dan top-N tag teratas di terminal. |
 
 ### B. Fitur Koleksi & Manajemen Lanjutan (11–20)
 | No | Kebutuhan Rubrik | Lokasi Implementasi | Penjelasan Teknis |
 |:---:|:---|:---|:---|
 | **11**| **`PhotoCollection.cari_by_tag()`** | `photo_collection.py` (`PhotoCollection.cari_by_tag`) | Pencarian foto berdasarkan tag kata kunci secara *case-insensitive*. |
-| **12**| **`PhotoCollection.filter_kategori()`** | `photo_collection.py` (`PhotoCollection.filter_kategori`) | Memfilter daftar foto berdasarkan nama kategori (Alam, Makanan, Dokumen, dll). |
-| **13**| **Iterator pada `PhotoCollection`** | `photo_collection.py` (`PhotoCollectionIterator`) | Implementasi murni **Iterator Pattern** (`__iter__` dan `__next__`), mendukung `for p in collection`. |
-| **14**| **Statistik tag terpopuler (`Counter`)** | `photo_collection.py` (`PhotoCollection.get_popular_tags`) | Menggunakan `collections.Counter` untuk menghitung frekuensi tag paling banyak muncul. |
-| **15**| **Batch analysis (Banyak foto)** | `photo_collection.py` (`PhotoCollection.batch_analyze`) | Memproses sekumpulan foto sekaligus dengan penanganan error per-berkas. |
-| **16**| **`YOLOv8VisionClient extends VisionClient`** | `vision_client.py` (`YOLOv8VisionClient`) | Provider Computer Vision lokal (YOLOv8 + EasyOCR) untuk deteksi objek, plat nomor, dan evaluasi helm. |
-| **17**| **Komparasi hasil 2 provider / engine** | `vision_client.py` (`ImageAnalysisService.compare_providers`) | Membandingkan caption, tag bersama (*shared tags*), dan tingkat keselarasan antar 2 AI/engine. |
-| **18**| **Laporan moderasi (Safe vs Unsafe)** | `photo_collection.py` (`ContentModerator.generate_moderation_report`) | Rekapitulasi jumlah foto tertib/aman, pelanggaran, dan persentase kepatuhan. |
+| **12**| **`PhotoCollection.filter_kategori()`** | `photo_collection.py` (`PhotoCollection.filter_kategori`) | Memfilter daftar foto berdasarkan nama kategori (Alam, Makanan, Dokumen, Kendaraan, dll). |
+| **13**| **Iterator pada `PhotoCollection`** | `photo_collection.py` (`PhotoCollectionIterator`) | Implementasi murni **Iterator Pattern** (`__iter__` dan `__next__`), mendukung loop native `for p in collection`. |
+| **14**| **Statistik tag terpopuler (`Counter`)** | `photo_collection.py` (`PhotoCollection.get_popular_tags`) | Menggunakan `collections.Counter` untuk menghitung frekuensi tag terbanyak. |
+| **15**| **Batch analysis (Banyak foto)** | `photo_collection.py` (`PhotoCollection.batch_analyze`) | Memproses sekumpulan foto sekaligus dengan penanganan error per-berkas yang *graceful*. |
+| **16**| **`GPT4VisionClient extends VisionClient`** | `vision_client.py` (`GPT4VisionClient`) | Provider OpenAI GPT-4o Vision API via HTTP payload JSON dengan fallback simulasi cerdas. |
+| **17**| **Komparasi hasil 2 provider / engine** | `vision_client.py` (`ImageAnalysisService.compare_providers`) | Membandingkan caption, tag bersama (*shared tags*), dan tingkat keselarasan antar 2 engine. |
+| **18**| **Laporan moderasi (Safe vs Unsafe)** | `photo_collection.py` (`ContentModerator.generate_moderation_report`) | Rekapitulasi jumlah foto aman, foto tidak aman (unsafe), dan persentase kepatuhan kelayakan publik. |
 | **19**| **Ekspor koleksi ke CSV (SOLID: SRP)** | `photo_collection.py` (`CollectionCSVExporter`) | Kelas terpisah khusus penulisan file CSV agar mematuhi *Single Responsibility Principle*. |
 | **20**| **Design Pattern: Strategy** | `vision_client.py` (`ImageAnalysisService`) | Menukar engine Vision AI aktif secara dinamis saat runtime (`set_strategy`). |
 
@@ -40,59 +78,19 @@ Sistem perangkat lunak modular siap pakai (*production-grade*) yang dirancang kh
 ## 🏛️ Konsep OOP yang Diterapkan
 
 1. **Inheritance & Abstraction (ABC)**:
-   - `VisionClient(ABC)` sebagai kelas induk abstrak yang mewariskan fungsionalitas ke `YOLOv8VisionClient`, `GeminiVisionClient`, `GPT4VisionClient`, dan `MockVisionClient`.
+   - `VisionClient(ABC)` sebagai superclass abstrak dengan metode `@abstractmethod analyze()` yang diturunkan oleh `GeminiVisionClient`, `GPT4VisionClient`, `YOLOv8VisionClient`, dan `MockVisionClient`.
 2. **Polymorphism**:
-   - Pemanggilan metode `client.analyze(image)` dieksekusi secara seragam terlepas dari provider/engine mana yang aktif.
+   - Pemanggilan metode seragam `client.analyze(image)` dapat dieksekusi pada instansiasi provider apa pun tanpa membedakan implementasi internalnya.
 3. **Exception Handling**:
-   - Kelas eksepsi terdedikasi `VisionAPIException` untuk menangkap galat inferensi, API, dan parsing data.
+   - Kelas eksepsi terdedikasi `VisionAPIException` untuk menangkap galat inferensi, API error, parsing JSON cacat, maupun berkas yang tidak ditemukan.
 4. **Design Pattern: Strategy Pattern**:
-   - `ImageAnalysisService` bertindak sebagai *Context* yang memegang objek strategi bertipe `VisionClient`.
+   - `ImageAnalysisService` bertindak sebagai *Context* yang memegang objek strategi `VisionClient` dan dapat ditukar kapan saja saat runtime.
 5. **Design Pattern: Iterator Pattern**:
-   - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python (`__iter__` dan `__next__`).
+   - `PhotoCollection` mengembalikan objek `PhotoCollectionIterator` sehingga mendukung protokol iterasi native Python (`__iter__` dan `__next__`, melempar `StopIteration` saat habis).
 6. **Prinsip SOLID**:
-   - **SRP (Single Responsibility Principle)**: Pemisahan tugas yang tegas antara analisis AI (`VisionClient`), penyimpanan koleksi (`PhotoCollection`), evaluasi keselamatan/moderasi (`ContentModerator`), dan ekspor CSV (`CollectionCSVExporter`).
-   - **OCP (Open/Closed Principle)**: Menambah engine baru cukup membuat subclass baru turunan `VisionClient` tanpa merombak kode yang ada.
+   - **SRP (Single Responsibility Principle)**: `ContentModerator` hanya bertanggung jawab atas kepatuhan/moderasi, `CollectionCSVExporter` hanya bertanggung jawab atas I/O ekspor CSV, dan `PhotoCollection` hanya mengelola struktur data koleksi.
+   - **OCP (Open/Closed Principle)**: Menambah engine baru cukup membuat subclass baru turunan `VisionClient` tanpa mengubah kode layanan (`ImageAnalysisService`).
    - **LSP & DIP (Liskov Substitution & Dependency Inversion)**: `ImageAnalysisService` bergantung pada abstraksi `VisionClient`, bukan implementasi konkretnya.
-7. **Unit Testing Pytest**:
-   - Rangkaian 20 pengujian otomatis mandiri di folder `tests/` mencakup seluruh logika dan relasi kelas.
-
----
-
-## 📂 Struktur Direktori Proyek
-
-```text
-Projek OOP/
-│
-├── config.py                 # Pengaturan konfigurasi, YOLO, OCR, dan direktori data
-├── vision_client.py          # VisionClient (ABC), YOLOv8, Gemini, Mock, Strategy Service
-├── photo_collection.py       # PhotoCollection, Iterator Pattern, ContentModerator, CSV Exporter (SRP)
-├── pipeline.py               # Pipeline kontinu pelacakan kendaraan, crossing line & auto-log
-├── detector.py               # Detector YOLOv8 + ByteTrack untuk video streaming
-├── visualizer.py             # Renderer visualizer anotasi bounding box (SRP)
-├── ocr_engine.py             # Optical Character Recognition (EasyOCR) plat nomor
-├── database.py               # SQLite logging & pelaporan
-├── cli.py                    # Runner baris perintah (CLI) untuk demonstrasi lengkap
-├── app.py                    # Web UI Dashboard Interaktif 5 Tab berbasis Streamlit
-├── yolov8n.pt                # Bobot model YOLOv8 Nano
-├── generate_samples.py       # Pembuat gambar sampel sintetis
-├── pyproject.toml            # Konfigurasi dependensi dan test runner pytest
-├── requirements.txt          # Daftar pustaka Python yang dibutuhkan
-├── .env                      # File konfigurasi API Key
-├── README.md                 # Dokumentasi teknis proyek
-│
-├── data/                     # Penyimpanan data lokal
-│   ├── samples/              # Gambar sampel bawaan
-│   ├── annotated/            # Citra hasil deteksi beranotasi bounding box
-│   ├── evidence/             # Tangkapan bukti pengendara dan plat nomor
-│   └── exports/              # File luaran ekspor CSV
-│
-├── tests/                    # Rangkaian Pengujian Otomatis Pytest (20 Unit Tests)
-│   ├── test_vision_client.py           # Uji ABC, Exception, Mock, YOLOv8, Base64, Strategy Pattern
-│   ├── test_photo_collection.py        # Uji Koleksi, Cari Tag, Filter Kategori, Iterator, Counter
-│   └── test_moderator_and_exporter.py  # Uji ContentModerator dan CollectionCSVExporter (SRP)
-│
-└── traffic_system_backup/    # Arsip cadangan sistem traffic sebelumnya
-```
 
 ---
 
@@ -110,81 +108,89 @@ uv pip install -r requirements.txt
 ```
 
 ### 3. Konfigurasi API Key (Opsional)
-Buka berkas `.env` dan masukkan API Key Google Gemini (opsional, sistem memiliki engine lokal YOLOv8 dan Mock):
+Buka berkas `.env` dan masukkan API Key Google Gemini atau OpenAI (opsional, sistem memiliki engine lokal YOLOv8 dan Mock offline):
 ```env
 GEMINI_API_KEY=AIzaSy...
 GEMINI_MODEL=gemini-2.5-flash
+OPENAI_API_KEY=sk-...
 ```
 
 ---
 
 ## 💻 Cara Menjalankan Program
 
-### A. Menjalankan Dashboard Web Streamlit (Rekomendasi Utama)
+### A. Menjalankan via Baris Perintah (CLI)
+Anda dapat menjalankan CLI interaktif atau menganalisis file foto langsung di terminal:
+
+1. **Menganalisis Berkas Foto (Caption & Top Tags - Rubrik Item 10)**:
+   ```bash
+   uv run python cli.py --file "data/samples/kopi_dan_roti.jpg" --provider mock
+   ```
+2. **Komparasi 2 Engine Vision AI Berdampingan (Rubrik Item 17)**:
+   ```bash
+   uv run python cli.py --compare "data/samples/kopi_dan_roti.jpg"
+   ```
+3. **Menganalisis Foto dengan Engine YOLOv8 Local Computer Vision**:
+   ```bash
+   uv run python cli.py --file "data/samples/mobil_sedan.jpg" --provider yolo
+   ```
+4. **Menjalankan Pemantauan Video Real-Time**:
+   ```bash
+   uv run python cli.py --demo
+   # atau: uv run python cli.py --video "path/ke/video.mp4"
+   ```
+5. **Menu Interaktif Lengkap**:
+   ```bash
+   uv run python cli.py
+   ```
+
+---
+
+### B. Menjalankan Dashboard Web Streamlit
 ```bash
 uv run streamlit run app.py
 # atau: streamlit run app.py
 ```
-Buka peramban di alamat `http://localhost:8501`. Fitur yang tersedia:
-1. **Tab 1 - Analisis Citra (Foto / Kamera)**: Upload gambar atau ambil foto langsung lewat webcam, pilih engine (YOLOv8 Local CV, Gemini, Mock), lihat bounding box, plat nomor OCR, caption, dan evaluasi kepatuhan aturan.
-2. **Tab 2 - Pemantauan Video & Live Stream**: Jalankan tracking video rekaman atau live webcam secara kontinu dengan garis hitung virtual (*virtual line crossing*) dan auto-logging ke koleksi.
-3. **Tab 3 - Analisis Batch**: Unggah banyak foto sekaligus untuk diproses secara massal dengan progress bar.
-4. **Tab 4 - Komparasi 2 Engine**: Bandingkan output YOLOv8 Local CV vs Gemini Multimodal AI pada citra yang sama.
-5. **Tab 5 - Galeri Koleksi & Moderasi**: Cari foto by tag, filter per kategori, statistik 5 tag terpopuler (`Counter`), laporan kepatuhan keselamatan, dan tombol **Unduh CSV Koleksi** (SOLID: SRP).
+Akses di browser pada alamat `http://localhost:8501`. Fitur 4 Tab mencakup:
+1. **🎥 Tab 1 - Live Stream & Monitoring**: Pemantauan video CCTV / webcam / demo video dengan garis hitung virtual (*line crossing*), serta mode snapshot inspeksi citra statis.
+2. **🚨 Tab 2 - Log Pelanggaran & Bukti**: Buku register pelanggaran lalu lintas terintegrasi database SQLite, galeri foto forensik pengendara & plat nomor, dan tombol ekspor CSV/Excel.
+3. **📄 Tab 3 - Validasi Dokumen (SIM/STNK)**: Verifikasi keabsahan dokumen berkendara via multimodal OCR dan *cross-check* pencocokan nomor polisi terhadap tangkapan kamera.
+4. **📊 Tab 4 - Statistik & Galeri Koleksi**: Visualisasi metrik arus lalu lintas, galeri foto hasil analisis (`PhotoCollection`), pencarian tag (`cari_by_tag`), filter kategori (`filter_kategori`), statistik 8 tag terpopuler (`collections.Counter`), laporan moderasi keselamatan (`ContentModerator`), dan tombol ekspor data koleksi ke CSV (SOLID: SRP).
 
 ---
 
-### B. Menjalankan via Baris Perintah (CLI)
-Anda dapat menjalankan demonstrasi lengkap atau menganalisis file foto di terminal:
+## 🧪 Rangkaian Pengujian Pytest (32 Unit Tests)
 
-1. **Demonstrasi Otomatis Lengkap**:
-   ```bash
-   uv run python cli.py --demo
-   ```
-2. **Menganalisis Berkas Foto Tertentu dengan YOLOv8**:
-   ```bash
-   uv run python cli.py --file "data/samples/mobil_sedan.jpg" --provider yolo
-   ```
-3. **Komparasi 2 Engine di CLI**:
-   ```bash
-   uv run python cli.py --compare "data/samples/kopi_dan_roti.jpg"
-   ```
-4. **Pemantauan Video di Terminal**:
-   ```bash
-   uv run python cli.py --video "path/ke/video.mp4"
-   ```
-
----
-
-## 🧪 Menjalankan Rangkaian Pengujian Pytest
-
-Jalankan seluruh 20 pengujian unit terisolasi dengan perintah:
+Rangkaian 32 pengujian otomatis terisolasi telah disiapkan pada folder `tests/` untuk memverifikasi fungsionalitas normal maupun **skenario kasus salah (Negative Testing / Exception Handling)**:
 
 ```bash
 uv run pytest -v
 # atau: pytest -v
 ```
 
-Hasil pengujian mencakup:
-- ✅ `test_abc_cannot_be_instantiated`: Memastikan `VisionClient` adalah Abstract Base Class murni.
-- ✅ `test_mock_vision_client_inheritance`: Memverifikasi Polimorfisme subclass Mock.
-- ✅ `test_yolo_vision_client_inheritance`: Memverifikasi Polimorfisme subclass YOLOv8.
-- ✅ `test_encode_image_base64_integrity`: Memverifikasi encoding base64 UTF-8.
-- ✅ `test_custom_exception_handling`: Memverifikasi eksepsi `VisionAPIException`.
-- ✅ `test_mock_vision_client_analyze_safe` & `test_mock_vision_client_analyze_unsafe`: Verifikasi inferensi mock.
-- ✅ `test_yolo_vision_client_analyze`: Verifikasi inferensi deteksi objek YOLOv8 & anotasi bounding box.
-- ✅ `test_strategy_pattern_execution_and_switching`: Memverifikasi penukaran strategi runtime.
-- ✅ `test_strategy_type_enforcement`: Memverifikasi penolakan strategi yang bukan turunan `VisionClient`.
-- ✅ `test_compare_providers`: Memverifikasi komparasi 2 engine.
-- ✅ `test_tambah_photo`, `test_cari_by_tag`, `test_filter_kategori`: Memverifikasi manajemen koleksi.
-- ✅ `test_iterator_pattern`: Memverifikasi Iterator Pattern murni (`iter()`, `next()`, `StopIteration`).
-- ✅ `test_popular_tags_counter`: Memverifikasi statistik tag menggunakan `collections.Counter`.
-- ✅ `test_batch_analyze`: Memverifikasi pemrosesan batch.
-- ✅ `test_filter_safe_and_unsafe_photos`: Memverifikasi pemisahan data aman dan pelanggaran.
-- ✅ `test_generate_moderation_report`: Memverifikasi laporan kepatuhan/keselamatan.
-- ✅ `test_export_to_csv_integrity`: Memverifikasi ekspor CSV mematuhi prinsip SOLID (SRP).
-
----
-
-## 🔒 Catatan Keamanan Data Proyek Sebelumnya
-Seluruh kode sistem deteksi lalu lintas & ETLE sebelumnya telah dicadangkan secara utuh di dalam direktori `traffic_system_backup/` dan dapat diakses kapan saja untuk kebutuhan portofolio Anda.
+### Rincian Cakupan Pengujian:
+1. **Hierarki & Polimorfisme `VisionClient`**:
+   - `test_abc_cannot_be_instantiated`: Memastikan kelas abstrak tidak dapat diinstansiasi langsung (`TypeError`).
+   - `test_mock_vision_client_inheritance` & `test_yolo_vision_client_inheritance`: Memverifikasi pewarisan polimorfik.
+   - `test_encode_image_base64_integrity`: Memverifikasi konversi citra ke string base64.
+2. **Skenario Kasus Negatif & Pembuktian Exception (`VisionAPIException`)**:
+   - `test_encode_image_nonexistent_file_raises_exception`: Memastikan `VisionAPIException` dilempar jika path berkas tidak ditemukan.
+   - `test_encode_image_invalid_type_raises_exception`: Memastikan `VisionAPIException` dilempar jika tipe input bukan gambar.
+   - `test_strategy_pattern_rejects_invalid_type`: Memastikan `TypeError` dilempar jika objek bukan turunan `VisionClient`.
+   - `test_photo_collection_tambah_invalid_type`: Memastikan `TypeError` dilempar jika objek bukan `PhotoAnalysisResult`.
+   - `test_batch_analyze_handles_exceptions_gracefully`: Memverifikasi batch analysis tidak *crash* saat menemui berkas yang korup/hilang.
+3. **Pengujian `GeminiVisionClient`**:
+   - `test_gemini_vision_client_missing_client_raises_exception`: Memverifikasi pelemparan `VisionAPIException` status 401 jika API key belum disetel.
+   - `test_gemini_vision_client_valid_json_response`: Memverifikasi parsing structured JSON yang berhasil.
+   - `test_gemini_vision_client_corrupt_json_raises_exception`: **Uji respons JSON rusak / korup** yang memicu `VisionAPIException` status 422.
+   - `test_gemini_vision_client_empty_response_raises_exception`: Memverifikasi penanganan respons kosong (500).
+4. **Pengujian `GPT4VisionClient`**:
+   - `test_gpt4_vision_client_simulated_fallback`: Memverifikasi mode simulasi saat tanpa API key.
+   - `test_gpt4_vision_client_api_error_raises_exception`: Memverifikasi respons error dari API OpenAI memicu `VisionAPIException`.
+5. **Pengujian Koleksi, Moderasi, & Ekspor (SOLID)**:
+   - `test_iterator_pattern`: Memverifikasi protokol `__iter__`, `__next__`, dan `StopIteration`.
+   - `test_cari_by_tag` & `test_filter_kategori`: Memverifikasi pencarian dan filter data.
+   - `test_popular_tags_counter`: Memverifikasi penghitungan tag via `collections.Counter`.
+   - `test_filter_safe_and_unsafe_photos`: Memverifikasi moderasi konten (`is_safe`).
+   - `test_generate_moderation_report`: Memverifikasi laporan kepatuhan moderasi.
+   - `test_export_to_csv_integrity`: Memverifikasi integritas penulisan CSV oleh `CollectionCSVExporter` (SRP).

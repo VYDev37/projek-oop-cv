@@ -32,6 +32,7 @@ from vision_client import (
     VisionClient,
     YOLOv8VisionClient,
     GeminiVisionClient,
+    GPT4VisionClient,
     MockVisionClient,
     ImageAnalysisService,
     PhotoAnalysisResult,
@@ -64,15 +65,32 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--source",
+        "--video",
+        dest="source",
         type=str,
         default="",
         help="Sumber video: '0' untuk webcam, atau path berkas video (.mp4/.avi)",
     )
     parser.add_argument(
+        "--file",
         "--image",
+        dest="image",
         type=str,
         default="",
-        help="Path berkas foto untuk langsung dianalisis via Computer Vision",
+        help="Path berkas foto untuk langsung dianalisis via Vision AI",
+    )
+    parser.add_argument(
+        "--compare",
+        type=str,
+        default="",
+        help="Path berkas foto untuk membandingkan 2 engine Vision AI berdampingan",
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=["yolo", "gemini", "mock", "gpt4"],
+        default="",
+        help="Pilihan engine Vision AI aktif (yolo / gemini / mock / gpt4)",
     )
     parser.add_argument(
         "--demo",
@@ -201,28 +219,40 @@ def run_video_stream(source: Union[int, str], line_ratio: float, headless: bool,
         logger.info("=" * 70)
 
 
-def analyze_single_photo(image_path_str: str) -> None:
+def display_photo_result(result: PhotoAnalysisResult, top_n_tags: int = 5) -> None:
+    """
+    Menampilkan hasil analisis foto ke antarmuka terminal/CLI (Rubrik Item 10).
+    Secara spesifik menampilkan caption naratif dan top-N tag teratas.
+    """
+    top_tags = result.tags[:top_n_tags] if result.tags else []
+    status_str = "AMAN (SAFE)" if result.is_safe else "UNSAFE (PERLU MODERASI / BAHAYA)"
+
+    print("\n" + "=" * 65)
+    print(f"HASIL ANALISIS CITRA ({result.provider})")
+    print(f"Status Moderasi : {status_str}")
+    print(f"Kategori        : {result.kategori}")
+    print(f"Caption Naratif : {result.caption}")
+    print(f"Top Tags ({len(top_tags)})  : {', '.join(['#' + t for t in top_tags]) if top_tags else '-'}")
+    print(f"Objek Fisik     : {', '.join(result.objects) if result.objects else '-'}")
+    print(f"Palet Warna     : {', '.join(result.colors) if result.colors else '-'}")
+    if result.ocr_text:
+        print(f"Plat Nomor / OCR: {result.ocr_text}")
+    print(f"Waktu Proses    : {result.processing_time_ms} ms")
+    print("=" * 65)
+
+
+def analyze_single_photo(image_path_str: str) -> Optional[PhotoAnalysisResult]:
     """Menganalisis satu foto menggunakan strategi Vision AI aktif."""
     path = Path(image_path_str)
     if not path.exists():
         print(f"❌ Berkas tidak ditemukan: {image_path_str}")
-        return
+        return None
 
     print(f"\n🔍 Menganalisis '{path.name}' via {app_service.strategy.__class__.__name__}...")
     res = app_service.analyze_image(path)
     app_collection.tambah(res)
-
-    status_str = "🛡️ TERTIB / SAFE" if res.is_safe else "⚠️ TERDETEKSI PELANGGARAN / UNSAFE"
-    print("\n" + "=" * 65)
-    print(f"HASIL ANALISIS: {path.name}")
-    print(f"Status Kepatuhan: {status_str}")
-    print(f"Kategori        : {res.kategori}")
-    print(f"Plat Nomor (OCR): {res.ocr_text or '-'}")
-    print(f"Objek Fisik     : {', '.join(res.objects)}")
-    print(f"Tag Terdeteksi  : {', '.join(['#' + t for t in res.tags])}")
-    print(f"Waktu Proses    : {res.processing_time_ms} ms")
-    print(f"Keterangan Naratif:\n{res.caption}")
-    print("=" * 65)
+    display_photo_result(res, top_n_tags=5)
+    return res
 
 
 def run_batch_samples() -> None:
@@ -346,6 +376,40 @@ def display_interactive_menu() -> None:
 def main() -> None:
     """Titik masuk eksekusi CLI."""
     args = parse_arguments()
+
+    # Terapkan pilihan provider jika ditentukan via CLI
+    if args.provider:
+        p = args.provider.lower()
+        if p == "gemini":
+            app_service.set_strategy(GeminiVisionClient())
+        elif p == "mock":
+            app_service.set_strategy(MockVisionClient())
+        elif p == "gpt4":
+            app_service.set_strategy(GPT4VisionClient())
+        else:
+            app_service.set_strategy(YOLOv8VisionClient())
+
+    # Komparasi 2 provider via CLI (Rubrik Item 17)
+    if args.compare:
+        compare_path = Path(args.compare)
+        if not compare_path.exists():
+            print(f"❌ Berkas tidak ditemukan: {args.compare}")
+            return
+        print(f"\n⚖️ Membandingkan hasil 2 provider untuk '{compare_path.name}'...")
+        client_a = YOLOv8VisionClient()
+        client_b = MockVisionClient()
+        comp = app_service.compare_providers(compare_path, client_a, client_b)
+        print("\n" + "=" * 65)
+        print("KOMPARASI HASIL 2 PROVIDER:")
+        print(f"Provider A ({comp['provider_a']['name']}):")
+        print(f" - Caption: {comp['provider_a']['caption']}")
+        print(f" - Tags   : {', '.join(comp['provider_a']['tags'])}")
+        print(f"Provider B ({comp['provider_b']['name']}):")
+        print(f" - Caption: {comp['provider_b']['caption']}")
+        print(f" - Tags   : {', '.join(comp['provider_b']['tags'])}")
+        print(f"Tag Bersama (Shared): {', '.join(comp['shared_tags']) if comp['shared_tags'] else '-'}")
+        print("=" * 65)
+        return
 
     if args.image:
         analyze_single_photo(args.image)

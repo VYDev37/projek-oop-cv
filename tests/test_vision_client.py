@@ -20,6 +20,7 @@ from vision_client import (
     PhotoAnalysisResult,
     VisionAPIException,
     ImageAnalysisService,
+    GeminiVisionClient
 )
 
 
@@ -151,3 +152,168 @@ class TestStrategyPattern:
         assert "shared_tags" in comparison
         assert "tag_agreement_rate" in comparison
         assert isinstance(comparison["tag_agreement_rate"], float)
+
+
+class TestVisionClientNegativeCases:
+    """Pengujian skenario kegagalan (negative test cases) untuk pembuktian Exception Handling."""
+
+    def test_encode_image_nonexistent_file_raises_exception(self):
+        """Memverifikasi bahwa _encode_image melempar VisionAPIException saat berkas tidak ada."""
+        client = MockVisionClient()
+        with pytest.raises(VisionAPIException) as exc_info:
+            client._encode_image("berkas_khayalan_yang_pasti_tidak_ada.jpg")
+        assert "tidak ditemukan" in str(exc_info.value).lower() or "gagal" in str(exc_info.value).lower()
+
+    def test_encode_image_invalid_type_raises_exception(self):
+        """Memverifikasi bahwa _encode_image melempar VisionAPIException saat diberikan tipe data yang tidak valid."""
+        client = MockVisionClient()
+        with pytest.raises(VisionAPIException) as exc_info:
+            client._encode_image(123456)
+        assert "tidak didukung" in str(exc_info.value).lower() or "gagal" in str(exc_info.value).lower()
+
+    def test_strategy_pattern_rejects_invalid_type(self):
+        """Memverifikasi bahwa set_strategy melempar TypeError jika diberikan objek bukan turunan VisionClient."""
+        service = ImageAnalysisService()
+        with pytest.raises(TypeError):
+            service.set_strategy("bukan_strategi_valid")
+        with pytest.raises(TypeError):
+            service.set_strategy(None)
+
+
+class TestGeminiVisionClient:
+    """Pengujian untuk GeminiVisionClient, termasuk parsing JSON respons dan exception handling."""
+
+    def test_gemini_vision_client_inheritance(self):
+        """Memastikan GeminiVisionClient adalah turunan dari VisionClient."""
+        client = GeminiVisionClient(api_key="dummy_key_for_test")
+        assert isinstance(client, VisionClient)
+
+    def test_gemini_vision_client_missing_client_raises_exception(self):
+        """Memastikan VisionAPIException dilempar jika klien Gemini belum siap/tanpa api_key."""
+        client = GeminiVisionClient(api_key=None)
+        client.client = None
+        dummy_img = Image.new("RGB", (50, 50), color="white")
+        with pytest.raises(VisionAPIException) as exc_info:
+            client.analyze(dummy_img)
+        assert exc_info.value.status_code == 401
+
+    def test_gemini_vision_client_valid_json_response(self):
+        """Memverifikasi parsing respons JSON terstruktur yang valid dari Gemini."""
+        client = GeminiVisionClient(api_key="mock_key")
+
+        class MockResponse:
+            text = (
+                '{\n'
+                '  "caption": "Pemandangan pegunungan hijau yang asri",\n'
+                '  "tags": ["gunung", "alam", "sejuk"],\n'
+                '  "objects": ["bukit", "pepohonan"],\n'
+                '  "kategori": "Alam",\n'
+                '  "is_safe": true,\n'
+                '  "colors": ["Hijau", "Biru Langit"],\n'
+                '  "ocr_text": ""\n'
+                '}'
+            )
+
+        class MockModels:
+            def generate_content(self, *args, **kwargs):
+                return MockResponse()
+
+        class MockGenAIClient:
+            models = MockModels()
+
+        client.client = MockGenAIClient()
+        dummy_img = Image.new("RGB", (60, 60), color="green")
+        result = client.analyze(dummy_img, image_name="gunung.jpg")
+
+        assert isinstance(result, PhotoAnalysisResult)
+        assert result.kategori == "Alam"
+        assert result.is_safe is True
+        assert "gunung" in result.tags
+        assert "Google Gemini" in result.provider
+
+    def test_gemini_vision_client_corrupt_json_raises_exception(self):
+        """Memverifikasi bahwa respons JSON yang rusak/korup memicu VisionAPIException (Rubrik Item 4)."""
+        client = GeminiVisionClient(api_key="mock_key")
+
+        class MockCorruptResponse:
+            text = "{ bad_json: ini_bukan_json_valid_dan_pasti_gagal_parse ..."
+
+        class MockModels:
+            def generate_content(self, *args, **kwargs):
+                return MockCorruptResponse()
+
+        class MockGenAIClient:
+            models = MockModels()
+
+        client.client = MockGenAIClient()
+        dummy_img = Image.new("RGB", (60, 60), color="red")
+
+        with pytest.raises(VisionAPIException) as exc_info:
+            client.analyze(dummy_img, image_name="korup.jpg")
+
+        assert exc_info.value.status_code == 422
+        assert "gagal mem-parse json" in str(exc_info.value).lower()
+
+    def test_gemini_vision_client_empty_response_raises_exception(self):
+        """Memverifikasi bahwa respons teks kosong memicu VisionAPIException."""
+        client = GeminiVisionClient(api_key="mock_key")
+
+        class MockEmptyResponse:
+            text = ""
+
+        class MockModels:
+            def generate_content(self, *args, **kwargs):
+                return MockEmptyResponse()
+
+        class MockGenAIClient:
+            models = MockModels()
+
+        client.client = MockGenAIClient()
+        dummy_img = Image.new("RGB", (60, 60), color="blue")
+
+        with pytest.raises(VisionAPIException) as exc_info:
+            client.analyze(dummy_img)
+
+        assert exc_info.value.status_code == 500
+        assert "respons kosong" in str(exc_info.value).lower()
+
+
+class TestGPT4VisionClient:
+    """Pengujian untuk GPT4VisionClient (Rubrik Item 16)."""
+
+    def test_gpt4_vision_client_inheritance(self):
+        """Memastikan GPT4VisionClient adalah turunan dari VisionClient."""
+        client = GPT4VisionClient(api_key=None)
+        assert isinstance(client, VisionClient)
+
+    def test_gpt4_vision_client_simulated_fallback(self):
+        """Memverifikasi bahwa saat API key tidak disetel, GPT-4o menggunakan mode simulasi cerdas."""
+        client = GPT4VisionClient(api_key=None)
+        dummy_img = Image.new("RGB", (80, 80), color="yellow")
+        result = client.analyze(dummy_img, image_name="tes_gpt4.jpg")
+
+        assert isinstance(result, PhotoAnalysisResult)
+        assert "OpenAI" in result.provider
+        assert result.is_safe is True
+        assert len(result.tags) > 0
+
+    def test_gpt4_vision_client_api_error_raises_exception(self, monkeypatch):
+        """Memverifikasi bahwa error status code dari OpenAI API melempar VisionAPIException."""
+        client = GPT4VisionClient(api_key="sk-fake-openai-key")
+
+        class MockFailedResponse:
+            status_code = 401
+            text = '{"error": {"message": "Incorrect API key provided"}}'
+
+            def json(self):
+                return {"error": "unauthorized"}
+
+        import requests
+        monkeypatch.setattr(requests, "post", lambda *args, **kwargs: MockFailedResponse())
+
+        dummy_img = Image.new("RGB", (50, 50), color="black")
+        with pytest.raises(VisionAPIException) as exc_info:
+            client.analyze(dummy_img)
+
+        assert exc_info.value.status_code == 401
+        assert "openai api error" in str(exc_info.value).lower()

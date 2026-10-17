@@ -4,7 +4,13 @@ Deskripsi: Alias antarmuka baris perintah (CLI) yang meneruskan eksekusi secara 
            Memenuhi seluruh fitur analisis foto tunggal, video tracking, moderasi, dan ekspor.
 """
 
-from main import main, analyze_single_photo, display_interactive_menu, parse_arguments
+from main import (
+    main,
+    display_photo_result,
+    analyze_single_photo,
+    display_interactive_menu,
+    parse_arguments,
+)
 
 if __name__ == "__main__":
     main()

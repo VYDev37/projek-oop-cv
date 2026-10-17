@@ -876,12 +876,8 @@ class ImageAnalysisService:
         Menukar provider strategi secara dinamis saat runtime.
         (Memenuhi konsep Polymorphism & Strategy Pattern).
         """
-        is_valid_strategy = isinstance(strategy, VisionClient) or any(
-            getattr(base, "__name__", "") == "VisionClient"
-            for base in getattr(strategy.__class__, "__mro__", [])
-        )
-        if not is_valid_strategy:
-            raise TypeError("Strategi harus merupakan turunan dari kelas abstrak VisionClient.")
+        if not isinstance(strategy, VisionClient):
+            raise TypeError("Strategi harus merupakan instansiasi turunan dari kelas abstrak VisionClient.")
         self._strategy = strategy
         logger.info("Strategi provider Vision AI ditukar menjadi: %s", strategy.__class__.__name__)
 

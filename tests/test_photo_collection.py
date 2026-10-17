@@ -159,3 +159,21 @@ class TestPhotoCollection:
         assert len(collection) == 2
         assert collection[0].kategori == "Alam"
         assert collection[1].kategori == "Makanan"
+
+    def test_batch_analyze_handles_exceptions_gracefully(self, tmp_path):
+        """Memverifikasi batch_analyze menangani error per-foto tanpa menyebabkan program crash."""
+        client = MockVisionClient()
+        collection = PhotoCollection()
+
+        # 1 berkas valid, 1 path berkas tidak ada (akan raise exception)
+        valid_img = Image.new("RGB", (50, 50), color="green")
+        valid_path = tmp_path / "valid_alam.jpg"
+        valid_img.save(valid_path)
+
+        nonexistent_path = tmp_path / "tidak_ada_sama_sekali.jpg"
+
+        # batch_analyze harus graceful menangani file yang gagal
+        results = collection.batch_analyze([valid_path, nonexistent_path], client=client)
+        assert len(results) == 1
+        assert len(collection) == 1
+        assert collection[0].kategori == "Alam"
