@@ -18,7 +18,6 @@ import time
 import logging
 from typing import Union, Set, Optional
 from pathlib import Path
-import cv2
 
 from config import (
     DEFAULT_YOLO_MODEL,
