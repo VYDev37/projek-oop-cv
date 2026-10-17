@@ -77,7 +77,7 @@ class TrafficMonitoringPipeline:
         5. Menambahkan alert ke antrean notifikasi real-time
         """
         try:
-            # 1. Simpan bukti citra secara asinkron (di background worker, bukan di thread video)
+            # Simpan bukti citra secara asinkron (di background worker, bukan di thread video)
             if candidate.rider_crop is not None and candidate.rider_crop_path:
                 cv2.imwrite(str(candidate.rider_crop_path), candidate.rider_crop)
             if candidate.plate_crop is not None and candidate.plate_crop_path:
@@ -86,7 +86,7 @@ class TrafficMonitoringPipeline:
             plate_text = "TIDAK_TERBACA"
             plate_conf = 0.0
 
-            # 2. Pembacaan OCR Plat Nomor (Prioritaskan citra in-memory)
+            # Pembacaan OCR Plat Nomor (Prioritaskan citra in-memory)
             plate_img = candidate.plate_crop
             if plate_img is None and candidate.plate_crop_path and candidate.plate_crop_path.exists():
                 plate_img = cv2.imread(str(candidate.plate_crop_path))
@@ -94,7 +94,7 @@ class TrafficMonitoringPipeline:
             if plate_img is not None:
                 plate_text, plate_conf = self.ocr.read_license_plate(plate_img)
 
-            # 3. Validasi Keselamatan Gemini AI (Prioritaskan citra in-memory)
+            # Validasi Keselamatan Gemini AI (Prioritaskan citra in-memory)
             safety_result: Optional[RiderSafetyValidation] = None
             rider_input = candidate.rider_crop if candidate.rider_crop is not None else candidate.rider_crop_path
             if rider_input is not None:
@@ -102,7 +102,7 @@ class TrafficMonitoringPipeline:
             else:
                 safety_result = self.gemini._mock_rider_safety_analysis()
 
-            # 4. Penentuan Status Pelanggaran
+            # Penentuan Status Pelanggaran
             violation_type = ViolationType.COMPLIANT.value
             status_tilang = EnforcementStatus.RELEASED.value
             helmet_status = HelmetStatus.WORN.value
@@ -112,7 +112,7 @@ class TrafficMonitoringPipeline:
                 status_tilang = EnforcementStatus.CONFIRMED_TICKET.value
                 helmet_status = HelmetStatus.NOT_WORN.value if not safety_result.is_helmet_present else HelmetStatus.NON_STANDARD.value
 
-            # 5. Simpan ke Database
+            # Simpan ke Database
             row_id = self.db.log_violation(
                 vehicle_type=candidate.vehicle_type,
                 violation_type=violation_type,
@@ -147,7 +147,7 @@ class TrafficMonitoringPipeline:
                 except Exception as ex:
                     logger.warning("Gagal menambahkan hasil pipeline ke PhotoCollection: %s", ex)
 
-            # 6. Jika pelanggaran, dorong ke antrean alert
+            # Jika pelanggaran, dorong ke antrean alert
             if safety_result.violation_detected:
                 alert = ViolationAlert(
                     id=row_id,
@@ -191,7 +191,7 @@ class TrafficMonitoringPipeline:
             frame, line_ratio=line_ratio
         )
 
-        # 1. Rekam kendaraan yang baru saja melintasi garis ke tabel traffic_logs
+        # Rekam kendaraan yang baru saja melintasi garis ke tabel traffic_logs
         for counted in metadata.get("newly_counted", []):
             try:
                 self.db.log_traffic_vehicle(
@@ -203,7 +203,7 @@ class TrafficMonitoringPipeline:
             except Exception as e:
                 logger.error("Gagal mencatat log kendaraan melintas: %s", e)
 
-        # 2. Delegasikan kandidat ke worker dengan batasan antrean untuk mencegah lag
+        # Delegasikan kandidat ke worker dengan batasan antrean untuk mencegah lag
         for candidate in candidates:
             if self.async_ai:
                 if len(self._active_tasks) < 10:
@@ -291,19 +291,19 @@ class TrafficMonitoringPipeline:
         total_violations = 0
 
         for candidate in candidates:
-            # 1. Simpan bukti citra jika ada path
+            # Simpan bukti citra jika ada path
             if candidate.rider_crop is not None and candidate.rider_crop_path:
                 cv2.imwrite(str(candidate.rider_crop_path), candidate.rider_crop)
             if candidate.plate_crop is not None and candidate.plate_crop_path:
                 cv2.imwrite(str(candidate.plate_crop_path), candidate.plate_crop)
 
-            # 2. OCR Plat Nomor
+            # Pembacaan OCR Plat Nomor
             plate_text = "TIDAK_TERBACA"
             plate_conf = 0.0
             if candidate.plate_crop is not None:
                 plate_text, plate_conf = self.ocr.read_license_plate(candidate.plate_crop)
 
-            # 3. Gemini Safety Validation
+            # Validasi Keselamatan AI
             safety_result: Optional[RiderSafetyValidation] = None
             if candidate.rider_crop is not None:
                 safety_result = self.gemini.validate_rider_safety(candidate.rider_crop)
@@ -322,7 +322,7 @@ class TrafficMonitoringPipeline:
                     recommended_action="LEPASKAN",
                 )
 
-            # 4. Status Pelanggaran
+            # Status Pelanggaran
             is_violation = safety_result.violation_detected
             if is_violation:
                 total_violations += 1
@@ -342,7 +342,7 @@ class TrafficMonitoringPipeline:
                 status_tilang = EnforcementStatus.RELEASED.value
                 helmet_status = HelmetStatus.WORN.value
 
-            # 5. Simpan ke database
+            # Simpan ke database
             self.db.log_traffic_vehicle(
                 track_id=candidate.track_id,
                 vehicle_type=candidate.vehicle_type,
@@ -383,7 +383,7 @@ class TrafficMonitoringPipeline:
                 "timestamp": candidate.timestamp,
             })
 
-        # 6. Gambar anotasi
+        # Gambar anotasi visual
         annotated_image = self.detector.visualizer.draw_inspected_static_objects(
             image, inspections
         )
@@ -399,6 +399,9 @@ class TrafficMonitoringPipeline:
         }
 
         return annotated_image, inspections, summary
+
+    # Alias untuk kompatibilitas fungsi pemanggilan inspeksi citra statis
+    inspect_static_image = process_static_image
 
     def shutdown(self) -> None:
         """Menghentikan thread pool dengan bersih."""

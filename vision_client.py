@@ -1,12 +1,7 @@
 """
 Module: vision_client.py
-Deskripsi: Modul inti Vision AI yang mengimplementasikan konsep OOP:
-           1. Abstract Base Class (ABC) & Inheritance: VisionClient
-           2. Subclass Konkrit: GeminiVisionClient, GPT4VisionClient, MockVisionClient
-           3. Custom Exception Handling: VisionAPIException
-           4. Helper Base64 Encoding: _encode_image()
-           5. Structured Data Model: PhotoAnalysisResult (Pydantic BaseModel)
-           6. Design Pattern: Strategy Pattern via ImageAnalysisService
+Deskripsi: Abstraksi dan implementasi Vision AI provider (YOLOv8, Gemini, GPT-4, Mock)
+           serta Strategy Pattern via ImageAnalysisService.
 """
 
 import base64
@@ -39,8 +34,6 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-# 4. CUSTOM EXCEPTION HANDLING
-
 class VisionAPIException(Exception):
     """
     Eksepsi kustom untuk menangani kegagalan pemanggilan Vision API,
@@ -53,8 +46,6 @@ class VisionAPIException(Exception):
         self.provider = provider
         self.status_code = status_code
 
-
-# 6. MODEL HASIL ANALISIS CITRA
 
 class PhotoAnalysisResult(BaseModel):
     """
@@ -115,8 +106,6 @@ class PhotoAnalysisResult(BaseModel):
     )
 
 
-# 1. DEFINISI VISION CLIENT (ABSTRACT BASE CLASS)
-
 class VisionClient(ABC):
     """
     Abstract Base Class (ABC) yang mendefinisikan antarmuka kontrak standar
@@ -127,7 +116,6 @@ class VisionClient(ABC):
         self.model_name = model_name
         self.api_key = api_key
 
-    # 5. Helper Encoding Citra ke Base64
     def _encode_image(self, image_input: Union[str, Path, bytes, Image.Image]) -> str:
         """
         Mengonversi input foto (path berkas, bytes mentah, atau PIL.Image)
@@ -146,7 +134,6 @@ class VisionClient(ABC):
 
             elif isinstance(image_input, Image.Image):
                 buffer = io.BytesIO()
-                # Simpan dalam format RGB JPEG
                 rgb_img = image_input.convert("RGB")
                 rgb_img.save(buffer, format="JPEG", quality=90)
                 return base64.b64encode(buffer.getvalue()).decode("utf-8")
@@ -171,7 +158,6 @@ class VisionClient(ABC):
         else:
             raise ValueError(f"Tipe input gambar tidak didukung: {type(image_input)}")
 
-    # 7. Method Kontrak Polimorfik
     @abstractmethod
     def analyze(
         self,
@@ -184,8 +170,6 @@ class VisionClient(ABC):
         """
         pass
 
-
-# 2. GEMINI VISION CLIENT
 
 class GeminiVisionClient(VisionClient):
     """
@@ -302,8 +286,6 @@ class GeminiVisionClient(VisionClient):
                 status_code=500,
             )
 
-
-# 3. MOCK VISION CLIENT
 
 class MockVisionClient(VisionClient):
     """
@@ -582,10 +564,7 @@ class YOLOv8VisionClient(VisionClient):
             except Exception as e:
                 logger.warning("Terjadi kesalahan inferensi YOLO: %s", e)
 
-        # ----------------------------------------------------------------------
-        # DETEKSI LANJUTAN OCR: Plat Nomor, STNK, dan Kepatuhan Helm
-        # (Akurat untuk citra statis, dokumen, plat mandiri, maupun scene jalan raya)
-        # ----------------------------------------------------------------------
+        # Deteksi lanjutan OCR: Plat nomor, STNK, dan kepatuhan helm
         raw_texts = []
         if self.ocr and getattr(self.ocr, "reader", None) is not None:
             try:
@@ -595,7 +574,7 @@ class YOLOv8VisionClient(VisionClient):
                 pass
         raw_all = " ".join(raw_texts)
 
-        # 1. Pembacaan Plat Nomor pada citra penuh jika belum ditemukan
+        # Pembacaan plat nomor pada citra penuh jika belum ditemukan
         if not ocr_plate_text and self.ocr:
             try:
                 full_plate, full_conf = self.ocr.read_license_plate(cv_img)
@@ -608,7 +587,7 @@ class YOLOv8VisionClient(VisionClient):
             except Exception:
                 pass
 
-        # 2. Deteksi Dokumen STNK Kendaraan
+        # Deteksi dokumen STNK kendaraan
         is_stnk_doc = any(k in raw_all for k in ["SURAT TANDA NOMOR", "STNK", "KEPOLISIAN", "REGISTRASI", "NOMOR KENDARAAN"])
         if is_stnk_doc:
             if "dokumen_stnk" not in detected_objects:
@@ -622,7 +601,7 @@ class YOLOv8VisionClient(VisionClient):
                 cv2.rectangle(annotated_frame, (15, 15), (annotated_frame.shape[1] - 15, 75), (0, 200, 0), -1)
                 cv2.putText(annotated_frame, "STATUS: STNK SAH & AKTIF", (25, 55), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2)
 
-        # 3. Audit Kepatuhan Helm Pengendara (Berdasarkan teks citra & nama file)
+        # Audit kepatuhan helm pengendara (berdasarkan teks citra dan nama file)
         has_helmet_violation = (
             any(k in raw_all for k in ["TANPA HELM", "PELANGGARAN", "TIDAK PAKAI HELM"])
             or any(k in image_path_str.lower() for k in ["no_helmet", "tanpa_helm"])
@@ -648,7 +627,7 @@ class YOLOv8VisionClient(VisionClient):
             cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, 65), (0, 200, 0), -1)
             cv2.putText(annotated_frame, "TERTIB: HELM STANDAR SNI", (20, 45), cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2)
 
-        # 4. Deteksi Bahaya / Unsafe / Violence
+        # Deteksi bahaya / unsafe / violence
         if any(w in image_path_str.lower() for w in ["unsafe", "hazard", "bahaya", "violence"]):
             is_safe = False
             if "bahaya_lalu_lintas" not in detected_objects:
@@ -656,7 +635,7 @@ class YOLOv8VisionClient(VisionClient):
             cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, 65), (0, 0, 255), -1)
             cv2.putText(annotated_frame, "PERINGATAN: KONTEN BERBAHAYA / UNSAFE", (20, 45), cv2.FONT_HERSHEY_DUPLEX, 0.65, (255, 255, 255), 2)
 
-        # 5. Fallback objek jika citra belum terklasifikasi
+        # Fallback objek jika citra belum terklasifikasi
         if not detected_objects:
             if any(k in raw_all for k in ["MOBIL", "SEDAN", "KENDARAAN"]):
                 detected_objects.append("car")
@@ -747,8 +726,6 @@ class YOLOv8VisionClient(VisionClient):
             boxes=boxes_out,
         )
 
-
-# 16. GPT-4 VISION CLIENT
 
 class GPT4VisionClient(VisionClient):
     """
@@ -879,8 +856,6 @@ class GPT4VisionClient(VisionClient):
             )
 
 
-# 20. DESIGN PATTERN: STRATEGY PATTERN
-
 class ImageAnalysisService:
     """
     Context class dalam Design Pattern Strategy.
@@ -918,7 +893,6 @@ class ImageAnalysisService:
         """Mendelegasikan proses analisis ke objek strategi aktif."""
         return self._strategy.analyze(image_input, image_name=image_name)
 
-    # 17. Komparasi Hasil 2 Provider Berbeda
     def compare_providers(
         self,
         image_input: Union[str, Path, bytes, Image.Image],

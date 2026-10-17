@@ -48,7 +48,7 @@ class TrafficVisualizer:
         detected_persons: List[Any],
     ) -> None:
         """Menggambar bounding box dan label kendaraan serta pengendara/pejalan kaki."""
-        # 1. Anotasi Kendaraan
+        # Anotasi Kendaraan
         for vehicle in tracked_vehicles:
             vx1, vy1, vx2, vy2 = vehicle.bbox
             v_type = vehicle.class_name
@@ -74,7 +74,7 @@ class TrafficVisualizer:
                 2,
             )
 
-        # 2. Anotasi Manusia (Person)
+        # Anotasi Manusia (Person)
         person_color = self.palette.get("person", (255, 255, 0))
         for person in detected_persons:
             px1, py1, px2, py2 = person.bbox

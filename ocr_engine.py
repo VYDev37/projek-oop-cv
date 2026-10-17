@@ -58,13 +58,13 @@ class LicensePlateOCR:
         if plate_crop is None or plate_crop.size == 0:
             return plate_crop
 
-        # 1. Pastikan dalam bentuk grayscale
+        # Konversi ke grayscale
         if len(plate_crop.shape) == 3:
             gray = cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
         else:
             gray = plate_crop.copy()
 
-        # 2. Perbesar ukuran citra jika terlalu kecil (kurang dari 100px tinggi)
+        # Perbesar ukuran citra jika terlalu kecil
         h, w = gray.shape[:2]
         if h < 80 or w < 200:
             scale_factor = max(80 / max(h, 1), 200 / max(w, 1), 2.0)
@@ -76,14 +76,14 @@ class LicensePlateOCR:
                 interpolation=cv2.INTER_CUBIC,
             )
 
-        # 3. Normalisasi kontras adaptif (CLAHE)
+        # Normalisasi kontras adaptif (CLAHE)
         clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
         contrast = clahe.apply(gray)
 
-        # 4. Reduksi derau tanpa mengaburkan tepi karakter
+        # Reduksi derau tanpa mengaburkan tepi karakter
         denoised = cv2.bilateralFilter(contrast, 11, 17, 17)
 
-        # 5. Binarisasi adaptif Otsu
+        # Binarisasi adaptif Otsu
         _, binary = cv2.threshold(
             denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )

@@ -37,7 +37,7 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
-            # 1. Tabel Log Lalu Lintas (Semua kendaraan melintas)
+            # Tabel Log Lalu Lintas (Semua kendaraan melintas)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS traffic_logs (
@@ -51,7 +51,7 @@ class DatabaseManager:
                 """
             )
 
-            # 2. Tabel Catatan Pelanggaran
+            # Tabel Catatan Pelanggaran
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS violations (
@@ -72,7 +72,7 @@ class DatabaseManager:
                 """
             )
 
-            # 3. Tabel Validasi Dokumen (SIM / STNK)
+            # Tabel Validasi Dokumen (SIM / STNK)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS document_validations (

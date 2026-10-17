@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .env
+legacy
+traffic_system_backup
+data/annotated/*.jpg

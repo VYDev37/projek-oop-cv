@@ -1,15 +1,10 @@
 """
-Script: generate_samples.py
-Deskripsi: Membuat gambar-gambar sampel sintetis untuk demo dan pengujian:
-           1. pantai_sunset.jpg (Kategori: Alam)
-           2. kopi_dan_roti.jpg (Kategori: Makanan)
-           3. mobil_sedan.jpg (Kategori: Kendaraan)
-           4. surat_dokumen.jpg (Kategori: Dokumen)
-           5. hazard_unsafe_demo.jpg (Kategori: Sensitif / Unsafe untuk uji ContentModerator)
+Module: generate_samples.py
+Deskripsi: Generator data sampel citra sintetis untuk pengujian dan demo.
 """
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from config import SAMPLES_DIR
 
 
@@ -19,7 +14,6 @@ def create_gradient_sample(filename: str, top_color: tuple, bottom_color: tuple,
     image = Image.new("RGB", (width, height))
     draw = ImageDraw.Draw(image)
 
-    # Render gradien vertikal
     for y in range(height):
         ratio = y / height
         r = int(top_color[0] * (1 - ratio) + bottom_color[0] * ratio)
@@ -27,11 +21,9 @@ def create_gradient_sample(filename: str, top_color: tuple, bottom_color: tuple,
         b = int(top_color[2] * (1 - ratio) + bottom_color[2] * ratio)
         draw.line([(0, y), (width, y)], fill=(r, g, b))
 
-    # Bingkai estetis
     draw.rectangle([(20, 20), (width - 20, height - 20)], outline=(255, 255, 255), width=3)
     draw.rectangle([(25, 25), (width - 25, height - 25)], outline=(0, 0, 0), width=1)
 
-    # Teks label
     draw.text((40, 50), title, fill=(255, 255, 255))
     draw.text((40, 80), subtitle, fill=(240, 240, 240))
     draw.text((40, 420), f"SAMPLE FILE: {filename}", fill=(200, 200, 200))
@@ -46,7 +38,6 @@ def generate_all_samples():
     SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
     created = []
 
-    # 1. Alam / Sunset
     created.append(create_gradient_sample(
         "pantai_sunset.jpg",
         (255, 94, 77), (255, 165, 2),
@@ -54,7 +45,6 @@ def generate_all_samples():
         "Pemandangan alam pantai saat senja dengan gradien langit keemasan."
     ))
 
-    # 2. Makanan / Kafe
     created.append(create_gradient_sample(
         "kopi_dan_roti.jpg",
         (109, 76, 65), (215, 204, 200),
@@ -62,7 +52,6 @@ def generate_all_samples():
         "Secangkir kopi espresso hangat dan roti panggang di kafe santai."
     ))
 
-    # 3. Kendaraan
     created.append(create_gradient_sample(
         "mobil_sedan.jpg",
         (30, 60, 114), (42, 82, 152),
@@ -70,7 +59,6 @@ def generate_all_samples():
         "Mobil sedan melaju di jalan raya dengan plat nomor B 1234 XYZ."
     ))
 
-    # 4. Dokumen
     created.append(create_gradient_sample(
         "surat_dokumen.jpg",
         (236, 240, 241), (189, 195, 199),
@@ -78,7 +66,6 @@ def generate_all_samples():
         "SURAT KETERANGAN RESMI No. 123/2026 TERTANGGAL AKTIF."
     ))
 
-    # 5. Unsafe / Hazard demo
     created.append(create_gradient_sample(
         "hazard_unsafe_demo.jpg",
         (192, 57, 43), (44, 62, 80),

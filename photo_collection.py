@@ -1,12 +1,6 @@
 """
 Module: photo_collection.py
-Deskripsi: Modul pengelolaan koleksi foto, moderasi konten, dan ekspor data:
-           1. Iterator Pattern: PhotoCollectionIterator & PhotoCollection
-           2. Pencarian & Filter: cari_by_tag(), filter_kategori()
-           3. Statistik Frekuensi: get_popular_tags() via collections.Counter
-           4. Pemrosesan Batch: batch_analyze()
-           5. Moderasi Konten: ContentModerator (cek is_safe, filter unsafe, laporan moderasi)
-           6. Prinsip SOLID (SRP): CollectionCSVExporter untuk ekspor data koleksi ke CSV
+Deskripsi: Pengelolaan koleksi foto, iterasi, filter, statistik, moderasi konten, dan ekspor data CSV.
 """
 
 import csv
@@ -20,8 +14,6 @@ from vision_client import PhotoAnalysisResult, VisionClient, VisionAPIException
 
 logger = logging.getLogger(__name__)
 
-
-# 13. ITERATOR PATTERN
 
 class PhotoCollectionIterator(Iterator[PhotoAnalysisResult]):
     """
@@ -45,19 +37,15 @@ class PhotoCollectionIterator(Iterator[PhotoAnalysisResult]):
         raise StopIteration
 
 
-# 9, 11, 12, 14, 15. KOLEKSI FOTO
-
 class PhotoCollection:
     """
     Aggregate class yang menyimpan dan mengelola sekumpulan hasil analisis citra PhotoAnalysisResult.
-    Mendukung protokol Iterable (Iterator Pattern), pencarian tag, filter kategori,
-    statistik Counter, dan batch analysis.
+    Mendukung protokol Iterable, pencarian tag, filter kategori, statistik Counter, dan batch analysis.
     """
 
     def __init__(self, initial_photos: Optional[List[PhotoAnalysisResult]] = None):
         self._photos: List[PhotoAnalysisResult] = initial_photos.copy() if initial_photos else []
 
-    # 9. Menyimpan hasil ke koleksi
     def tambah(self, result: PhotoAnalysisResult) -> None:
         """Menambahkan objek PhotoAnalysisResult ke dalam koleksi."""
         is_valid_result = isinstance(result, PhotoAnalysisResult) or (
@@ -68,7 +56,6 @@ class PhotoCollection:
         self._photos.append(result)
         logger.info("Foto berhasil ditambahkan ke koleksi. Total koleksi: %d", len(self._photos))
 
-    # 11. Cari foto berdasarkan tag
     def cari_by_tag(self, tag: str) -> List[PhotoAnalysisResult]:
         """
         Mencari dan mengembalikan semua foto yang memiliki tag tertentu (case-insensitive).
@@ -79,7 +66,6 @@ class PhotoCollection:
             if any(clean_tag == t.lower() for t in p.tags)
         ]
 
-    # 12. Filter per kategori
     def filter_kategori(self, kategori: str) -> List[PhotoAnalysisResult]:
         """
         Memfilter dan mengembalikan semua foto berdasarkan nama kategori (case-insensitive).
@@ -90,7 +76,6 @@ class PhotoCollection:
             if p.kategori.strip().lower() == clean_kat
         ]
 
-    # 13. Iterator Protocol
     def __iter__(self) -> PhotoCollectionIterator:
         """Mengembalikan objek iterator konkrit PhotoCollectionIterator."""
         return PhotoCollectionIterator(self._photos)
@@ -103,7 +88,6 @@ class PhotoCollection:
         """Memungkinkan akses indeks langsung photo_collection[i]."""
         return self._photos[index]
 
-    # 14. Statistik tag terpopuler menggunakan Counter
     def get_popular_tags(self, top_n: int = 5) -> List[Tuple[str, int]]:
         """
         Menghitung frekuensi seluruh tag di dalam koleksi menggunakan collections.Counter
@@ -118,7 +102,6 @@ class PhotoCollection:
         categories = [p.kategori for p in self._photos]
         return dict(Counter(categories))
 
-    # 15. Batch analysis: proses banyak foto sekaligus
     def batch_analyze(
         self,
         image_inputs: List[Union[str, Path, bytes, Image.Image]],
@@ -160,11 +143,9 @@ class PhotoCollection:
         self._photos.clear()
 
 
-# 8 & 18. CONTENT MODERATOR & LAPORAN MODERASI
-
 class ContentModerator:
     """
-    Kelas bertangung jawab khusus untuk moderasi konten (memenuhi prinsip Single Responsibility).
+    Kelas bertanggung jawab khusus untuk moderasi konten (memenuhi prinsip Single Responsibility).
     Memeriksa kepatuhan keamanan konten foto, memfilter foto unsafe, dan menyusun laporan moderasi.
     """
 
@@ -180,7 +161,6 @@ class ContentModerator:
         """Memfilter dan mengembalikan hanya foto-foto yang tidak aman (unsafe)."""
         return [p for p in photos if not self.is_safe(p)]
 
-    # 18. Laporan moderasi: jumlah foto safe vs unsafe
     def generate_moderation_report(
         self, photos: Union[PhotoCollection, List[PhotoAnalysisResult]]
     ) -> Dict[str, Any]:
@@ -205,8 +185,6 @@ class ContentModerator:
             "status": "BERSIH" if unsafe_count == 0 else f"PERHATIAN: {unsafe_count} foto melanggar panduan",
         }
 
-
-# 19. EKSPOR KOLEKSI KE CSV (SOLID: SRP)
 
 class CollectionCSVExporter:
     """

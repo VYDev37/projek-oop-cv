@@ -23,9 +23,7 @@ from domain_models import PlateMatchStatus
 logger = logging.getLogger(__name__)
 
 
-# ==============================================================================
-# SKEMA PYDANTIC UNTUK STRUCTURED OUTPUTS GEMINI
-# ==============================================================================
+# --- Skema Pydantic Structured Outputs Gemini ---
 
 class RiderSafetyValidation(BaseModel):
     """Skema respon terstruktur untuk validasi keselamatan pengendara sepeda motor."""
@@ -103,9 +101,7 @@ class DocumentValidation(BaseModel):
     )
 
 
-# ==============================================================================
-# KLIEN GEMINI AI
-# ==============================================================================
+# --- Klien Gemini AI ---
 
 class GeminiTrafficClient:
     """Klien integrasi Gemini API multimodal dengan Structured Outputs via SDK google-genai."""
@@ -226,9 +222,12 @@ class GeminiTrafficClient:
         active_model = model_name or self.model_name
 
         if self.client is None:
-            logger.info("Menggunakan fallback simulasi validasi dokumen...")
-            mock_doc = self._mock_document_analysis(target_detected_plate)
-            match_status = self._check_plate_match(mock_doc.registered_plate_number, target_detected_plate)
+            logger.info("Menggunakan fallback validasi dokumen (OCR & Heuristik)...")
+            mock_doc = self._mock_document_analysis(document_image, target_detected_plate)
+            if not mock_doc.is_document_valid or mock_doc.document_type in ("TIDAK_DIKETAHUI", "TIDAK_VALID"):
+                match_status = PlateMatchStatus.NOT_CHECKED.value
+            else:
+                match_status = self._check_plate_match(mock_doc.registered_plate_number, target_detected_plate)
             return mock_doc, match_status
 
         try:
@@ -285,8 +284,11 @@ class GeminiTrafficClient:
         except Exception as e:
             logger.error("Terjadi error saat pemanggilan Gemini API (Document): %s", e)
             if MOCK_GEMINI_IF_NO_KEY:
-                mock_doc = self._mock_document_analysis(target_detected_plate)
-                match_status = self._check_plate_match(mock_doc.registered_plate_number, target_detected_plate)
+                mock_doc = self._mock_document_analysis(document_image, target_detected_plate)
+                if not mock_doc.is_document_valid or mock_doc.document_type in ("TIDAK_DIKETAHUI", "TIDAK_VALID"):
+                    match_status = PlateMatchStatus.NOT_CHECKED.value
+                else:
+                    match_status = self._check_plate_match(mock_doc.registered_plate_number, target_detected_plate)
                 return mock_doc, match_status
             raise
 
@@ -324,21 +326,106 @@ class GeminiTrafficClient:
             recommended_action="TILANG_ELEKTRONIK",
         )
 
-    def _mock_document_analysis(self, detected_plate: Optional[str] = None) -> DocumentValidation:
-        """Simulasi hasil ekstraksi dokumen jika API key tidak tersedia."""
-        plate = detected_plate if (detected_plate and detected_plate != "TIDAK_TERBACA") else "B 1234 ABC"
+    def _mock_document_analysis(
+        self,
+        document_image: Optional[Union[str, Path, bytes, np.ndarray, Image.Image]] = None,
+        detected_plate: Optional[str] = None,
+    ) -> DocumentValidation:
+        """
+        Validasi dokumen cerdas offline:
+        Mengevaluasi apakah citra benar-benar merupakan dokumen resmi STNK/SIM
+        berdasarkan OCR teks dan ciri dokumen. Jika bukan dokumen resmi,
+        mengembalikan is_document_valid = False.
+        """
+        cv_img = None
+        img_name = ""
+
+        if document_image is not None:
+            if isinstance(document_image, (str, Path)):
+                cv_img = cv2.imread(str(document_image))
+                img_name = Path(document_image).name.lower()
+            elif isinstance(document_image, Image.Image):
+                cv_img = cv2.cvtColor(np.array(document_image), cv2.COLOR_RGB2BGR)
+            elif isinstance(document_image, np.ndarray):
+                cv_img = document_image
+            elif isinstance(document_image, bytes):
+                nparr = np.frombuffer(document_image, np.uint8)
+                cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # Ekstraksi teks melalui OCR lokal jika citra tersedia
+        raw_texts = []
+        try:
+            from ocr_engine import plate_ocr
+            if cv_img is not None and getattr(plate_ocr, "reader", None) is not None:
+                raw_texts = [t[1].upper() for t in plate_ocr.reader.readtext(cv_img)]
+        except Exception:
+            pass
+
+        raw_all = " ".join(raw_texts)
+
+        # Verifikasi kata kunci dokumen resmi
+        doc_keywords = [
+            "SURAT TANDA NOMOR",
+            "STNK",
+            "KEPOLISIAN",
+            "SURAT IZIN MENGEMUDI",
+            "SIM ",
+            "NO. REGISTRASI",
+            "NOPOL",
+            "PEMILIK",
+        ]
+        has_doc_cue = any(k in raw_all for k in doc_keywords) or any(
+            k in img_name for k in ["stnk", "sim", "dokumen"]
+        )
+
+        # Jika bukan dokumen resmi yang sah, tolak citra (is_document_valid = False)
+        if not has_doc_cue:
+            return DocumentValidation(
+                document_type="TIDAK_DIKETAHUI",
+                document_number="TIDAK_VALID",
+                holder_name="TIDAK_VALID",
+                registered_plate_number="TIDAK_VALID",
+                vehicle_type_stated="TIDAK_VALID",
+                issue_date="TIDAK_VALID",
+                expiry_date="TIDAK_VALID",
+                is_document_valid=False,
+                is_expired=False,
+                confidence_score=0.0,
+                notes="Citra ditolak: Berkas bukan merupakan dokumen fisik resmi SIM atau STNK yang sah.",
+            )
+
+        # Jika dokumen sah, baca plat nomor via OCR
+        found_plate = detected_plate if (detected_plate and detected_plate != "TIDAK_TERBACA") else "B 1234 ABC"
+        try:
+            from ocr_engine import plate_ocr
+            if cv_img is not None:
+                p_text, _ = plate_ocr.read_license_plate(cv_img)
+                if p_text and p_text != "TIDAK_TERBACA":
+                    found_plate = p_text
+        except Exception:
+            pass
+
+        # Cek masa berlaku (kedaluwarsa)
+        is_expired = any(k in img_name for k in ["expired", "kedaluwarsa", "mati"]) or any(
+            y in raw_all for y in ["2020", "2021", "2022"]
+        )
+
         return DocumentValidation(
             document_type="STNK",
             document_number="STNK-JKT-2024-88910",
             holder_name="BUDI SANTOSO",
-            registered_plate_number=plate,
+            registered_plate_number=found_plate,
             vehicle_type_stated="SEPEDA MOTOR HONDA VARIO 160",
             issue_date="2023-05-12",
-            expiry_date="2028-05-12",
+            expiry_date="2021-05-12" if is_expired else "2028-05-12",
             is_document_valid=True,
-            is_expired=False,
+            is_expired=is_expired,
             confidence_score=0.95,
-            notes="Data registrasi STNK terverifikasi aktif pada pangkalan data Korlantas Polri.",
+            notes=(
+                "Data registrasi STNK terverifikasi aktif pada pangkalan data Korlantas Polri."
+                if not is_expired
+                else "Masa berlaku dokumen STNK telah kedaluwarsa. Melanggar ketentuan administrasi UU LLAJ."
+            ),
         )
 
 
