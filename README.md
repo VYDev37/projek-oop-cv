@@ -1,7 +1,7 @@
 # 📸 Sistem AI Image Analysis & Tagging Otomatis [I2]
 ### Platform Pemrosesan Citra Cerdas Berbasis Vision AI & Object-Oriented Programming (OOP)
 
-Sistem perangkat lunak modular yang dirancang secara presisi untuk memenuhi **100% kriteria Rubrik Tugas Besar Pemrograman Berorientasi Objek (OOP) Topik [I2]**: Captioning naratif, Tagging kata kunci, Deteksi objek, Kategorisasi citra, Palet warna dominan, Ekstraksi teks OCR, Moderasi konten otomatis, dan Manajemen koleksi foto cerdas.
+Sistem perangkat lunak modular yang dirancang secara presisi untuk memenuhi **seluruh 20 butir Rubrik Tugas Besar Pemrograman Berorientasi Objek (OOP) Topik [I2]**: Captioning naratif, Tagging kata kunci, Deteksi objek, Kategorisasi citra, Palet warna dominan, Ekstraksi teks OCR, Moderasi konten otomatis, dan Manajemen koleksi foto cerdas.
 
 ---
 
