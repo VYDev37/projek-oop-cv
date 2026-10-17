@@ -438,6 +438,19 @@ class YOLOv8VisionClient(VisionClient):
         start_time = time.time()
         image_path_str = str(image_input) if isinstance(image_input, (str, Path)) else (image_name or "in_memory_image")
 
+        # Lazy import: OpenCV & NumPy hanya dibutuhkan engine lokal ini, sehingga
+        # Mock/Gemini/GPT-4 tetap bisa dipakai tanpa dependensi Computer Vision.
+        try:
+            import cv2
+            import numpy as np
+        except ImportError as ie:
+            raise VisionAPIException(
+                f"Dependensi Computer Vision belum terpasang ({ie}). "
+                "Jalankan: pip install opencv-python numpy ultralytics easyocr",
+                provider="YOLOv8VisionClient",
+                status_code=500,
+            )
+
         try:
             pil_image = self._prepare_pil_image(image_input).convert("RGB")
             cv_img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
