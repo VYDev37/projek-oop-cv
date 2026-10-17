@@ -379,15 +379,7 @@ def main() -> None:
 
     # Terapkan pilihan provider jika ditentukan via CLI
     if args.provider:
-        p = args.provider.lower()
-        if p == "gemini":
-            app_service.set_strategy(GeminiVisionClient())
-        elif p == "mock":
-            app_service.set_strategy(MockVisionClient())
-        elif p == "gpt4":
-            app_service.set_strategy(GPT4VisionClient())
-        else:
-            app_service.set_strategy(YOLOv8VisionClient())
+        app_service.set_strategy(VisionClientFactory.create(args.provider))
 
     # Komparasi 2 provider via CLI (Rubrik Item 17)
     if args.compare:
@@ -396,8 +388,8 @@ def main() -> None:
             print(f"❌ Berkas tidak ditemukan: {args.compare}")
             return
         print(f"\n⚖️ Membandingkan hasil 2 provider untuk '{compare_path.name}'...")
-        client_a = YOLOv8VisionClient()
-        client_b = MockVisionClient()
+        client_a = VisionClientFactory.create("yolo")
+        client_b = VisionClientFactory.create("mock")
         comp = app_service.compare_providers(compare_path, client_a, client_b)
         print("\n" + "=" * 65)
         print("KOMPARASI HASIL 2 PROVIDER:")
