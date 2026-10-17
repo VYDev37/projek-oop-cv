@@ -31,7 +31,7 @@ Seluruh 20 butir rubrik penilaian tugas besar diimplementasikan pada modul inti 
   - Antarmuka baris perintah (CLI) interaktif dan otomatis.
   - Fungsi `display_photo_result(result, top_n_tags=5)`: Menampilkan caption naratif dan top tag teratas per foto sesuai spesifikasi rubrik.
 - **`tests/`**:
-  - Rangkaian pengujian otomatis **32 Unit Tests di Pytest** yang menguji seluruh fungsionalitas dan skenario kasus negatif (*pytest.raises*).
+  - Rangkaian pengujian otomatis **Unit Tests di Pytest** (32 test inti rubrik + test tambahan Factory/Database) yang menguji seluruh fungsionalitas dan skenario kasus negatif (*pytest.raises*).
 
 ### 🚀 2. Modul Ekstensi Sistem Lalu Lintas Cerdas (Studi Kasus Nyata / Nilai Tambah)
 Implementasi terintegrasi ke dalam studi kasus nyata pemantauan lalu lintas dan penegakan hukum elektronik (ETLE):
