@@ -33,6 +33,7 @@ from vision_client import (
     GeminiVisionClient,
     GPT4VisionClient,
     MockVisionClient,
+    VisionClientFactory,
     ImageAnalysisService,
     PhotoAnalysisResult,
 )
