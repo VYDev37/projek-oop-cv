@@ -197,3 +197,10 @@ uv run pytest -v
    - `test_filter_safe_and_unsafe_photos`: Memverifikasi moderasi konten (`is_safe`).
    - `test_generate_moderation_report`: Memverifikasi laporan kepatuhan moderasi.
    - `test_export_to_csv_integrity`: Memverifikasi integritas penulisan CSV oleh `CollectionCSVExporter` (SRP).
+6. **Pengujian Tambahan (`tests/test_factory_and_database.py`)**:
+   - Factory Pattern: `create` untuk 4 provider, case-insensitive, `ValueError` untuk provider tidak dikenal, `register` menolak kelas bukan turunan `VisionClient` (`TypeError`).
+   - `test_vision_client_import_does_not_require_cv2_or_numpy`: memastikan `vision_client` bisa diimpor tanpa OpenCV/NumPy (Mock/Gemini/GPT-4 tidak butuh dependensi CV).
+   - `DatabaseManager`: koneksi SQLite selalu ditutup, commit saat sukses, rollback saat error.
+
+> **Catatan dependensi:** engine `mock`, `gemini`, dan `gpt4` tidak membutuhkan OpenCV/YOLO. Paket Computer Vision (`opencv-python`, `ultralytics`, `easyocr`, `torch`) hanya dimuat saat memakai `--provider yolo`, mode video, atau dashboard Streamlit.
+> 
