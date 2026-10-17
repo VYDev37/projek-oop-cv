@@ -927,3 +927,41 @@ class ImageAnalysisService:
                 round(len(shared_tags) / max(1, len(set_tags_a.union(set_tags_b))) * 100, 1)
             ),
         }
+
+
+class VisionClientFactory:
+    """
+    Factory Pattern: membuat objek VisionClient berdasarkan nama provider.
+    Pemanggil (CLI, Streamlit) cukup memakai nama string tanpa tahu kelas konkritnya.
+    Provider baru dapat didaftarkan lewat register() tanpa mengubah kode pemanggil (OCP).
+    """
+
+    _registry: Dict[str, Type[VisionClient]] = {
+        "mock": MockVisionClient,
+        "gemini": GeminiVisionClient,
+        "gpt4": GPT4VisionClient,
+        "yolo": YOLOv8VisionClient,
+    }
+
+    @classmethod
+    def create(cls, provider: str, **kwargs: Any) -> VisionClient:
+        """Membuat instance VisionClient. Melempar ValueError jika provider tidak dikenal."""
+        key = (provider or "").strip().lower()
+        client_cls = cls._registry.get(key)
+        if client_cls is None:
+            raise ValueError(
+                f"Provider '{provider}' tidak dikenal. Pilihan: {', '.join(cls.available_providers())}"
+            )
+        return client_cls(**kwargs)
+
+    @classmethod
+    def register(cls, name: str, client_cls: Type[VisionClient]) -> None:
+        """Mendaftarkan provider baru. Kelas harus turunan VisionClient."""
+        if not (isinstance(client_cls, type) and issubclass(client_cls, VisionClient)):
+            raise TypeError("client_cls harus berupa kelas turunan VisionClient.")
+        cls._registry[name.strip().lower()] = client_cls
+
+    @classmethod
+    def available_providers(cls) -> List[str]:
+        """Daftar nama provider yang terdaftar."""
+        return sorted(cls._registry)
