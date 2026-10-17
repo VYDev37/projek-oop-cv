@@ -8,6 +8,7 @@ Deskripsi: Pengelola database lokal SQLite untuk mencatat log lalu lintas,
 import sqlite3
 import json
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -29,6 +30,19 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
+
+    @contextmanager
+    def _connection(self):
+        """Context manager koneksi: commit jika sukses, rollback jika gagal, dan selalu menutup koneksi."""
+        conn = self._get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def init_db(self) -> None:
         """Inisialisasi skema tabel jika belum ada."""
