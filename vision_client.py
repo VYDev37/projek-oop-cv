@@ -867,12 +867,12 @@ class ImageAnalysisService:
     """
 
     def __init__(self, strategy: Optional[VisionClient] = None):
-        self._strategy: VisionClient = strategy or MockVisionClient()
+        self.__strategy: VisionClient = strategy or MockVisionClient()
 
     @property
     def strategy(self) -> VisionClient:
         """Mengambil strategi VisionClient saat ini."""
-        return self._strategy
+        return self.__strategy
 
     def set_strategy(self, strategy: VisionClient) -> None:
         """
@@ -881,7 +881,7 @@ class ImageAnalysisService:
         """
         if not isinstance(strategy, VisionClient):
             raise TypeError("Strategi harus merupakan instansiasi turunan dari kelas abstrak VisionClient.")
-        self._strategy = strategy
+        self.__strategy = strategy
         logger.info("Strategi provider Vision AI ditukar menjadi: %s", strategy.__class__.__name__)
 
     def analyze_image(
@@ -890,7 +890,7 @@ class ImageAnalysisService:
         image_name: Optional[str] = None,
     ) -> PhotoAnalysisResult:
         """Mendelegasikan proses analisis ke objek strategi aktif."""
-        return self._strategy.analyze(image_input, image_name=image_name)
+        return self.__strategy.analyze(image_input, image_name=image_name)
 
     def compare_providers(
         self,
