@@ -23,15 +23,15 @@ class PhotoCollectionIterator(Iterator[PhotoAnalysisResult]):
     """
 
     def __init__(self, photos: List[PhotoAnalysisResult]):
-        self._photos = photos
+        self.__photos = photos
         self._index = 0
 
     def __iter__(self) -> "PhotoCollectionIterator":
         return self
 
     def __next__(self) -> PhotoAnalysisResult:
-        if self._index < len(self._photos):
-            photo = self._photos[self._index]
+        if self._index < len(self.__photos):
+            photo = self.__photos[self._index]
             self._index += 1
             return photo
         raise StopIteration
@@ -44,7 +44,7 @@ class PhotoCollection:
     """
 
     def __init__(self, initial_photos: Optional[List[PhotoAnalysisResult]] = None):
-        self._photos: List[PhotoAnalysisResult] = initial_photos.copy() if initial_photos else []
+        self.__photos: List[PhotoAnalysisResult] = initial_photos.copy() if initial_photos else []
 
     def tambah(self, result: PhotoAnalysisResult) -> None:
         """Menambahkan objek PhotoAnalysisResult ke dalam koleksi."""
@@ -53,8 +53,8 @@ class PhotoCollection:
         )
         if not is_valid_result:
             raise TypeError("Objek yang ditambahkan harus berupa instansiasi PhotoAnalysisResult.")
-        self._photos.append(result)
-        logger.info("Foto berhasil ditambahkan ke koleksi. Total koleksi: %d", len(self._photos))
+        self.__photos.append(result)
+        logger.info("Foto berhasil ditambahkan ke koleksi. Total koleksi: %d", len(self.__photos))
 
     def cari_by_tag(self, tag: str) -> List[PhotoAnalysisResult]:
         """
@@ -62,7 +62,7 @@ class PhotoCollection:
         """
         clean_tag = tag.strip().lower()
         return [
-            p for p in self._photos
+            p for p in self.__photos
             if any(clean_tag == t.lower() for t in p.tags)
         ]
 
@@ -72,34 +72,34 @@ class PhotoCollection:
         """
         clean_kat = kategori.strip().lower()
         return [
-            p for p in self._photos
+            p for p in self.__photos
             if clean_kat == p.kategori.strip().lower() or clean_kat in p.kategori.strip().lower()
         ]
 
     def __iter__(self) -> PhotoCollectionIterator:
         """Mengembalikan objek iterator konkrit PhotoCollectionIterator."""
-        return PhotoCollectionIterator(self._photos)
+        return PhotoCollectionIterator(self.__photos)
 
     def __len__(self) -> int:
         """Mengembalikan jumlah foto dalam koleksi."""
-        return len(self._photos)
+        return len(self.__photos)
 
     def __getitem__(self, index: int) -> PhotoAnalysisResult:
         """Memungkinkan akses indeks langsung photo_collection[i]."""
-        return self._photos[index]
+        return self.__photos[index]
 
     def get_popular_tags(self, top_n: int = 5) -> List[Tuple[str, int]]:
         """
         Menghitung frekuensi seluruh tag di dalam koleksi menggunakan collections.Counter
         dan mengembalikan daftar tuple (tag, jumlah) untuk top-N tag terbanyak.
         """
-        all_tags = [t.lower() for p in self._photos for t in p.tags]
+        all_tags = [t.lower() for p in self.__photos for t in p.tags]
         counter = Counter(all_tags)
         return counter.most_common(top_n)
 
     def get_kategori_distribution(self) -> Dict[str, int]:
         """Menghitung distribusi jumlah foto per kategori."""
-        categories = [p.kategori for p in self._photos]
+        categories = [p.kategori for p in self.__photos]
         return dict(Counter(categories))
 
     def batch_analyze(
@@ -136,11 +136,11 @@ class PhotoCollection:
 
     def get_all_photos(self) -> List[PhotoAnalysisResult]:
         """Mengembalikan salinan list seluruh foto dalam koleksi."""
-        return self._photos.copy()
+        return self.__photos.copy()
 
     def clear(self) -> None:
         """Mengosongkan koleksi."""
-        self._photos.clear()
+        self.__photos.clear()
 
 
 class ContentModerator:
