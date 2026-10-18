@@ -200,17 +200,36 @@ def run_video_stream(source: Union[int, str], line_ratio: float, headless: bool,
                     )
 
             if not headless:
-                cv2.imshow("Smart Traffic Monitoring System (Tekan 'q' untuk Keluar)", annotated_frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    logger.info("Pengguna menekan tombol 'q'. Menghentikan stream...")
-                    break
+                try:
+                    cv2.imshow("Smart Traffic Monitoring System (Tekan 'q' untuk Keluar)", annotated_frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        logger.info("Pengguna menekan tombol 'q'. Menghentikan stream...")
+                        break
+                except (cv2.error, Exception) as cv_err:
+                    logger.warning(
+                        "Jendela GUI OpenCV tidak didukung oleh build OpenCV saat ini: %s. "
+                        "Beralih otomatis ke mode CLI (pemantauan latar belakang). Tekan Ctrl+C untuk berhenti.",
+                        cv_err,
+                    )
+                    headless = True
+
+            if headless and frame_count % 25 == 0:
+                logger.info(
+                    "[Stream Running] Frame: %d | Kendaraan Terhitung: %d | Pelanggaran: %d",
+                    frame_count,
+                    pipeline.detector.total_counted,
+                    len(last_reported_alerts),
+                )
 
     except KeyboardInterrupt:
         logger.info("Pemantauan dihentikan oleh pengguna (Ctrl+C).")
     finally:
         cap.release()
         if not headless:
-            cv2.destroyAllWindows()
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
 
         elapsed = time.time() - start_time
         fps_avg = frame_count / elapsed if elapsed > 0 else 0
@@ -275,19 +294,19 @@ def display_interactive_menu() -> None:
     """Menampilkan menu CLI interaktif OOP."""
     while True:
         print("\n" + "=" * 65)
-        print("🚦 SISTEM CERDAS PEMANTAUAN LALU LINTAS & KESELAMATAN AI (OOP CLI)")
+        print("SISTEM CERDAS PEMANTAUAN LALU LINTAS & KESELAMATAN AI (OOP CLI)")
         print(f"Engine Aktif: {app_service.strategy.__class__.__name__} | Koleksi: {len(app_collection)} foto")
         print("=" * 65)
-        print("1. 📹 Jalankan Pemantauan Video Real-Time (OpenCV Window)")
-        print("2. 🔍 Analisis & Deteksi Foto Tunggal")
-        print("3. ⚡ Jalankan Analisis Batch Seluruh Sampel Foto")
-        print("4. 🏷️ Cari Foto Berdasarkan Tag (PhotoCollection.cari_by_tag)")
-        print("5. 📂 Filter Foto Berdasarkan Kategori (PhotoCollection.filter_kategori)")
-        print("6. 📊 Tampilkan Tag Paling Populer (collections.Counter)")
-        print("7. 🛡️ Tampilkan Laporan Moderasi & Kepatuhan (ContentModerator)")
-        print("8. 📥 Ekspor Seluruh Koleksi ke CSV (CollectionCSVExporter)")
-        print("9. 🎯 Ganti Engine Vision AI (Strategy Pattern)")
-        print("0. 🚪 Keluar")
+        print("1. Jalankan Pemantauan Video Real-Time (OpenCV Window)")
+        print("2. Analisis & Deteksi Foto Tunggal")
+        print("3. Jalankan Analisis Batch Seluruh Sampel Foto")
+        print("4. Cari Foto Berdasarkan Tag (PhotoCollection.cari_by_tag)")
+        print("5. Filter Foto Berdasarkan Kategori (PhotoCollection.filter_kategori)")
+        print("6. Tampilkan Tag Paling Populer (collections.Counter)")
+        print("7. Tampilkan Laporan Moderasi & Kepatuhan (ContentModerator)")
+        print("8. Ekspor Seluruh Koleksi ke CSV (CollectionCSVExporter)")
+        print("9. Ganti Engine Vision AI (Strategy Pattern)")
+        print("0. Keluar")
         print("=" * 65)
 
         choice = input("Pilih menu [0-9]: ").strip()

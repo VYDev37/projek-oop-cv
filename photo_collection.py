@@ -73,7 +73,7 @@ class PhotoCollection:
         clean_kat = kategori.strip().lower()
         return [
             p for p in self._photos
-            if p.kategori.strip().lower() == clean_kat
+            if clean_kat == p.kategori.strip().lower() or clean_kat in p.kategori.strip().lower()
         ]
 
     def __iter__(self) -> PhotoCollectionIterator:
