@@ -282,16 +282,16 @@ class TrafficDetector:
             # Deteksi khusus Sepeda Motor: Asosiasikan dengan Pengendara
             associated_rider: Optional[TrackedObject] = None
             if v_type == "motorcycle":
+                best_ratio = 0.0
                 for person in detected_persons:
                     px1, py1, px2, py2 = person.bbox
-                    # Asosiasi spasial: Posisi orang tumpang tindih secara horizontal dengan motor
-                    # dan badan orang berada di atas / memotong bagian atas motor
                     overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
                     rider_w = max(1, px2 - px1)
+                    ratio = overlap_x / rider_w
 
-                    if overlap_x / rider_w > 0.35 and (py2 > vy1 and py1 < vy2):
+                    if ratio > 0.35 and (py2 > vy1 and py1 < vy2) and ratio > best_ratio:
+                        best_ratio = ratio
                         associated_rider = person
-                        break
 
                 # Pemicu evaluasi pelanggaran (Crop Pengendara & Plat)
                 # Evaluasi dipicu jika kendaraan mendekati/melewati area pantau dan belum pernah diproses
