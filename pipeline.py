@@ -64,7 +64,7 @@ class TrafficMonitoringPipeline:
 
         # ThreadPool untuk eksekusi OCR & Gemini API tanpa memblokir FPS video
         self.executor = ThreadPoolExecutor(max_workers=3)
-        self._active_tasks: Set[Any] = set()
+        self.__active_tasks: Set[Any] = set()
         self.recent_alerts: List[ViolationAlert] = []
 
     def _analyze_candidate_worker(self, candidate: ViolationCandidate) -> None:
@@ -206,14 +206,14 @@ class TrafficMonitoringPipeline:
         # Delegasikan kandidat ke worker dengan batasan antrean untuk mencegah lag
         for candidate in candidates:
             if self.async_ai:
-                if len(self._active_tasks) < 10:
+                if len(self.__active_tasks) < 10:
                     future = self.executor.submit(self._analyze_candidate_worker, candidate)
-                    self._active_tasks.add(future)
-                    future.add_done_callback(self._active_tasks.discard)
+                    self.__active_tasks.add(future)
+                    future.add_done_callback(self.__active_tasks.discard)
                 else:
                     logger.warning(
                         "Antrean AI penuh (%d aktif), kandidat track #%d ditunda.",
-                        len(self._active_tasks),
+                        len(self.__active_tasks),
                         candidate.track_id,
                     )
             else:

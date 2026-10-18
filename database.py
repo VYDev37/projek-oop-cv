@@ -22,7 +22,7 @@ class DatabaseManager:
 
     def __init__(self, db_path: Path = DB_PATH):
         self.db_path = Path(db_path)
-        self._write_lock = threading.Lock()
+        self.__write_lock = threading.Lock()
         self.init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -47,7 +47,7 @@ class DatabaseManager:
     def init_db(self) -> None:
         """Inisialisasi skema tabel jika belum ada."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._write_lock:
+        with self.__write_lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
@@ -118,7 +118,7 @@ class DatabaseManager:
     ) -> int:
         """Mencatat kendaraan yang terdeteksi melintas."""
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with self._write_lock:
+        with self.__write_lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -150,7 +150,7 @@ class DatabaseManager:
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         validation_json = json.dumps(gemini_safety_validation or {}, ensure_ascii=False)
 
-        with self._write_lock:
+        with self.__write_lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -200,7 +200,7 @@ class DatabaseManager:
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         raw_json = json.dumps(gemini_raw_response or {}, ensure_ascii=False)
 
-        with self._write_lock:
+        with self.__write_lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
