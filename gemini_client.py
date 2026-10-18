@@ -13,7 +13,7 @@ from typing import Optional, Union, List, Tuple
 from PIL import Image
 import numpy as np
 import cv2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from google import genai
 from google.genai import types
 
@@ -62,6 +62,7 @@ class RiderSafetyValidation(BaseModel):
     recommended_action: str = Field(
         description="Rekomendasi tindakan: LEPASKAN, PERINGATAN, atau TILANG_ELEKTRONIK."
     )
+    _simulated: bool = PrivateAttr(default=False)
 
 
 class DocumentValidation(BaseModel):
@@ -309,7 +310,7 @@ class GeminiTrafficClient:
 
     def _mock_rider_safety_analysis(self) -> RiderSafetyValidation:
         """Simulasi hasil analisis keselamatan jika API key tidak tersedia."""
-        return RiderSafetyValidation(
+        result = RiderSafetyValidation(
             is_helmet_present=False,
             helmet_worn_properly=False,
             helmet_type="TIDAK_ADA",
@@ -322,10 +323,16 @@ class GeminiTrafficClient:
             ],
             severity_level="HIGH",
             confidence_score=0.92,
-            officer_notes="Pelanggaran Pasal 106 ayat (8) jo Pasal 291 ayat (1) UU No. 22 Tahun 2009 tentang LLAJ (Tidak mengenakan helm SNI).",
+            officer_notes=(
+                "[SIMULASI - BUKAN HASIL AI NYATA] "
+                "Pelanggaran Pasal 106 ayat (8) jo Pasal 291 ayat (1) "
+                "UU No. 22 Tahun 2009 tentang LLAJ (Tidak mengenakan helm SNI)."
+            ),
             recommended_action="TILANG_ELEKTRONIK",
         )
-
+        result._simulated = True
+        return result
+               
     def _mock_document_analysis(
         self,
         document_image: Optional[Union[str, Path, bytes, np.ndarray, Image.Image]] = None,

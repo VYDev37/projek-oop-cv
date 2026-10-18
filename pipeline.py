@@ -103,15 +103,20 @@ class TrafficMonitoringPipeline:
                 safety_result = self.gemini._mock_rider_safety_analysis()
 
             # Penentuan Status Pelanggaran
+            is_simulated = getattr(safety_result, "_simulated", False)
             violation_type = ViolationType.COMPLIANT.value
             status_tilang = EnforcementStatus.RELEASED.value
             helmet_status = HelmetStatus.WORN.value
 
             if safety_result.violation_detected:
                 violation_type = ViolationType.NO_HELMET.value if not safety_result.is_helmet_present else ViolationType.NON_STANDARD.value
-                status_tilang = EnforcementStatus.CONFIRMED_TICKET.value
+                status_tilang = (
+                    EnforcementStatus.PENDING_REVIEW.value
+                    if is_simulated
+                    else EnforcementStatus.CONFIRMED_TICKET.value
+                )
                 helmet_status = HelmetStatus.NOT_WORN.value if not safety_result.is_helmet_present else HelmetStatus.NON_STANDARD.value
-
+                       
             # Simpan ke Database
             row_id = self.db.log_violation(
                 vehicle_type=candidate.vehicle_type,
@@ -318,6 +323,7 @@ class TrafficMonitoringPipeline:
                     severity_level="NONE",
                     confidence_score=0.95,
                     officer_notes="Kendaraan tertutup, kepatuhan helm standar.",
+                    is_simulated = getattr(safety_result, "_simulated", False)
                     recommended_action="LEPASKAN",
                 )
 
