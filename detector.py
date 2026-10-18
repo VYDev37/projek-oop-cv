@@ -428,14 +428,16 @@ class TrafficDetector:
             rider_crop_path = None
 
             if v_type == "motorcycle":
+                best_ratio = 0.0
                 for person in detected_persons:
                     px1, py1, px2, py2 = person.bbox
                     overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
                     rider_w = max(1, px2 - px1)
+                    ratio = overlap_x / rider_w
 
-                    if overlap_x / rider_w > 0.35 and (py2 > vy1 and py1 < vy2):
+                    if ratio > 0.35 and (py2 > vy1 and py1 < vy2) and ratio > best_ratio:
+                        best_ratio = ratio
                         associated_rider = person
-                        break
 
                 if associated_rider is not None:
                     rider_crop = self._crop_with_margin(image, associated_rider.bbox, margin_ratio=0.15)
