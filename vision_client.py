@@ -169,6 +169,17 @@ class VisionClient(ABC):
         pass
 
 
+class GeminiStructuredResponse(BaseModel):
+    """Skema respons terstruktur Gemini yang kompatibel penuh dengan Google AI Studio Developer API."""
+    caption: str = Field(..., description="Deskripsi naratif singkat dan informatif tentang isi foto.")
+    tags: List[str] = Field(default_factory=list, description="Daftar label atau kata kunci yang relevan.")
+    objects: List[str] = Field(default_factory=list, description="Objek fisik yang terdeteksi di foto.")
+    kategori: str = Field(..., description="Kategori utama citra (Alam, Makanan, Kendaraan, Dokumen, dll).")
+    is_safe: bool = Field(..., description="Status moderasi: True jika aman, False jika berbahaya/tidak senonoh.")
+    colors: List[str] = Field(default_factory=list, description="Daftar 2-4 warna dominan.")
+    ocr_text: Optional[str] = Field(default="", description="Teks yang terbaca pada gambar jika ada.")
+
+
 class GeminiVisionClient(VisionClient):
     """
     Subclass konkrit VisionClient yang memanfaatkan Google GenAI SDK (google-genai).
@@ -230,7 +241,7 @@ class GeminiVisionClient(VisionClient):
 
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=PhotoAnalysisResult,
+                response_schema=GeminiStructuredResponse,
                 system_instruction=(
                     "Anda adalah AI Ahli Kurasi & Analisis Citra Digital profesional. "
                     "Hasil analisis harus selalu akurat, objektif, dan mengikuti skema JSON yang ditentukan."
