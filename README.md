@@ -114,7 +114,7 @@ uv pip install -r requirements.txt
 Buka berkas `.env` dan masukkan API Key Google Gemini atau OpenAI (opsional, sistem memiliki engine lokal YOLOv8 dan Mock offline):
 ```env
 GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
 OPENAI_API_KEY=sk-...
 ```
 

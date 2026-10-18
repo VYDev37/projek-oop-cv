@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Set
 from dataclasses import dataclass, field
-import cv2
+from collections import Counter
 import numpy as np
 
 from ultralytics import YOLO
@@ -219,7 +219,6 @@ class TrafficDetector:
                     if len(self.track_class_history[tid_int]) > 30:
                         self.track_class_history[tid_int].pop(0)
 
-                    from collections import Counter
                     consensus_cls = Counter(self.track_class_history[tid_int]).most_common(1)[0][0]
                     cls_name = consensus_cls
 

@@ -299,7 +299,6 @@ class TrafficMonitoringPipeline:
 
             # Pembacaan OCR Plat Nomor
             plate_text = "TIDAK_TERBACA"
-            plate_conf = 0.0
             if candidate.plate_crop is not None:
                 plate_text, plate_conf = self.ocr.read_license_plate(candidate.plate_crop)
 
