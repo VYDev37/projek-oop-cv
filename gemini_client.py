@@ -13,7 +13,7 @@ from typing import Optional, Union, List, Tuple
 from PIL import Image
 import numpy as np
 import cv2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from google import genai
 from google.genai import types
 
