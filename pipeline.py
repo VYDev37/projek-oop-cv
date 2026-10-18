@@ -323,8 +323,8 @@ class TrafficMonitoringPipeline:
                     severity_level="NONE",
                     confidence_score=0.95,
                     officer_notes="Kendaraan tertutup, kepatuhan helm standar.",
-                    is_simulated = getattr(safety_result, "_simulated", False)
-                    recommended_action="LEPASKAN",
+                    is_simulated = getattr(safety_result, "_simulated", False),
+                    recommended_action="LEPASKAN"
                 )
 
             # Status Pelanggaran
