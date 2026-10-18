@@ -400,57 +400,59 @@ with tabs[0]:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 st.error(f"Gagal membuka sumber video: {video_path}")
+                cap.release()
             else:
                 fps_timer = time.time()
                 frame_count = 0
 
-                while cap.isOpened() and run_monitoring:
-                    ret, frame = cap.read()
-                    if not ret:
-                        # Loop video jika file
-                        if isinstance(video_path, str) and not str(source_type).startswith("Webcam"):
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                            continue
-                        break
+                try:
+                    while cap.isOpened() and run_monitoring:
+                        ret, frame = cap.read()
+                        if not ret:
+                            # Loop video jika file
+                            if isinstance(video_path, str) and not str(source_type).startswith("Webcam"):
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                continue
+                            break
 
-                    # Frame processing via pipeline terintegrasi
-                    annotated_frame, alerts, meta = pipeline.process_frame(frame, line_ratio=line_ratio)
+                        # Frame processing via pipeline terintegrasi
+                        annotated_frame, alerts, meta = pipeline.process_frame(frame, line_ratio=line_ratio)
 
-                    # Hitung FPS
-                    frame_count += 1
-                    curr_time = time.time()
-                    fps = frame_count / (curr_time - fps_timer) if (curr_time - fps_timer) > 0 else 0
+                        # Hitung FPS
+                        frame_count += 1
+                        curr_time = time.time()
+                        fps = frame_count / (curr_time - fps_timer) if (curr_time - fps_timer) > 0 else 0
 
-                    # Tampilkan di Streamlit
-                    frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-                    video_placeholder.image(
-                        frame_rgb,
-                        caption=f"Real-Time Stream | FPS: {fps:.1f} | Garis Hitung: {int(line_ratio*100)}%",
-                        use_container_width=True,
-                    )
+                        # Tampilkan di Streamlit
+                        frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                        video_placeholder.image(
+                            frame_rgb,
+                            caption=f"Real-Time Stream | FPS: {fps:.1f} | Garis Hitung: {int(line_ratio*100)}%",
+                            use_container_width=True,
+                        )
 
-                    # Perbarui umpan alert pelanggaran
-                    with feed_placeholder.container():
-                        if alerts:
-                            for alert in alerts[:4]:
-                                st.markdown(
-                                    f"""
-                                    <div style="border: 1px solid #ffcdd2; background: #ffebee; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
-                                        <span class="badge-violation">{alert.violation_type}</span>
-                                        <span style="float:right; font-size:0.8rem; color:#666;">{alert.timestamp}</span>
-                                        <br><b>Kendaraan:</b> {alert.vehicle_type} (Track #{alert.track_id})
-                                        <br><b>Plat Nomor (OCR):</b> <code>{alert.license_plate}</code>
-                                        <br><b>Keparahan:</b> {alert.severity} | <b>Tindakan:</b> {alert.recommended_action}
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
-                        else:
-                            st.info("Belum ada pelanggaran terdeteksi pada aliran saat ini.")
+                        # Perbarui umpan alert pelanggaran
+                        with feed_placeholder.container():
+                            if alerts:
+                                for alert in alerts[:4]:
+                                    st.markdown(
+                                        f"""
+                                        <div style="border: 1px solid #ffcdd2; background: #ffebee; border-radius: 6px; padding: 10px; margin-bottom: 8px;">
+                                            <span class="badge-violation">{alert.violation_type}</span>
+                                            <span style="float:right; font-size:0.8rem; color:#666;">{alert.timestamp}</span>
+                                            <br><b>Kendaraan:</b> {alert.vehicle_type} (Track #{alert.track_id})
+                                            <br><b>Plat Nomor (OCR):</b> <code>{alert.license_plate}</code>
+                                            <br><b>Keparahan:</b> {alert.severity} | <b>Tindakan:</b> {alert.recommended_action}
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True,
+                                    )
+                            else:
+                                st.info("Belum ada pelanggaran terdeteksi pada aliran saat ini.")
 
-                    time.sleep(0.02)
-
-                cap.release()
+                        time.sleep(0.02)
+                finally:
+                    cap.release()
 
 # --- Tab 2: Log Pelanggaran & Bukti ---
 with tabs[1]:
