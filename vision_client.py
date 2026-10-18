@@ -941,7 +941,7 @@ class VisionClientFactory:
     Provider baru dapat didaftarkan lewat register() tanpa mengubah kode pemanggil (OCP).
     """
 
-    _registry: Dict[str, type[VisionClient]] = {
+    __registry: Dict[str, type[VisionClient]] = {
         "mock": MockVisionClient,
         "gemini": GeminiVisionClient,
         "gpt4": GPT4VisionClient,
@@ -952,7 +952,7 @@ class VisionClientFactory:
     def create(cls, provider: str, **kwargs: Any) -> VisionClient:
         """Membuat instance VisionClient. Melempar ValueError jika provider tidak dikenal."""
         key = (provider or "").strip().lower()
-        client_cls = cls._registry.get(key)
+        client_cls = cls.__registry.get(key)
         if client_cls is None:
             raise ValueError(
                 f"Provider '{provider}' tidak dikenal. Pilihan: {', '.join(cls.available_providers())}"
@@ -964,9 +964,9 @@ class VisionClientFactory:
         """Mendaftarkan provider baru. Kelas harus turunan VisionClient."""
         if not (isinstance(client_cls, type) and issubclass(client_cls, VisionClient)):
             raise TypeError("client_cls harus berupa kelas turunan VisionClient.")
-        cls._registry[name.strip().lower()] = client_cls
+        cls.__registry[name.strip().lower()] = client_cls
 
     @classmethod
     def available_providers(cls) -> List[str]:
         """Daftar nama provider yang terdaftar."""
-        return sorted(cls._registry)
+        return sorted(cls.__registry)

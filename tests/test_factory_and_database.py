@@ -66,7 +66,7 @@ class TestVisionClientFactory:
             assert isinstance(VisionClientFactory.create("custom-test"), CustomClient)
             assert "custom-test" in VisionClientFactory.available_providers()
         finally:
-            VisionClientFactory._registry.pop("custom-test", None)
+            VisionClientFactory.__registry.pop("custom-test", None)
 
     def test_factory_product_works_with_strategy_service(self):
         service = ImageAnalysisService(strategy=VisionClientFactory.create("mock"))
