@@ -949,7 +949,7 @@ class VisionClientFactory:
     Provider baru dapat didaftarkan lewat register() tanpa mengubah kode pemanggil (OCP).
     """
 
-    _registry: Dict[str, Type[VisionClient]] = {
+    _registry: Dict[str, type[VisionClient]] = {
         "mock": MockVisionClient,
         "gemini": GeminiVisionClient,
         "gpt4": GPT4VisionClient,
@@ -968,7 +968,7 @@ class VisionClientFactory:
         return client_cls(**kwargs)
 
     @classmethod
-    def register(cls, name: str, client_cls: Type[VisionClient]) -> None:
+    def register(cls, name: str, client_cls: type[VisionClient]) -> None:
         """Mendaftarkan provider baru. Kelas harus turunan VisionClient."""
         if not (isinstance(client_cls, type) and issubclass(client_cls, VisionClient)):
             raise TypeError("client_cls harus berupa kelas turunan VisionClient.")
