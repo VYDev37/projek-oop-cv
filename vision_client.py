@@ -302,21 +302,17 @@ class MockVisionClient(VisionClient):
         """Menghasilkan analisis simulasi cerdas berdasarkan nama atau metadata berkas."""
         start_time = time.time()
 
-        # Validasi bahwa input gambar valid (memastikan _encode_image bekerja)
         _ = self._encode_image(image_input)
-
         name_lower = ""
         if isinstance(image_input, (str, Path)):
             name_lower = Path(image_input).name.lower()
         elif image_name:
             name_lower = image_name.lower()
 
-        # Simulasi deteksi konten unsafe jika nama mengandung kata sensitif
         is_safe = True
         if any(w in name_lower for w in ["unsafe", "hazard", "bahaya", "nsfw", "violence"]):
             is_safe = False
 
-        # Simulasi kategori & deskripsi berbasis konten nama
         if any(w in name_lower for w in ["pantai", "beach", "sunset", "alam", "nature", "gunung"]):
             caption = "Pemandangan lanskap alam yang indah dan menenangkan saat matahari terbenam."
             tags = ["alam", "pemandangan", "sunset", "outdoor", "langit"]
@@ -378,7 +374,6 @@ class MockVisionClient(VisionClient):
 
 
 # LOCAL COMPUTER VISION & YOLO ENGINE
-
 class YOLOv8VisionClient(VisionClient):
     """
     Subclass konkrit VisionClient berbasis Computer Vision lokal menggunakan YOLOv8 & EasyOCR.
@@ -398,36 +393,36 @@ class YOLOv8VisionClient(VisionClient):
         self.model_path = Path(model_path) if model_path else DEFAULT_YOLO_MODEL
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
-        self._model = None
-        self._ocr = None
+        self.__model = None
+        self.__ocr = None
 
     @property
     def model(self):
         """Lazy load model YOLOv8."""
-        if self._model is None:
+        if self.__model is None:
             try:
                 from ultralytics import YOLO
                 if self.model_path.exists():
-                    self._model = YOLO(str(self.model_path))
+                    self.__model = YOLO(str(self.model_path))
                 else:
-                    self._model = YOLO("yolov8n.pt")
+                    self.__model = YOLO("yolov8n.pt")
                 logger.info("Model YOLOv8 berhasil dimuat dari %s", self.model_path)
             except Exception as e:
                 logger.warning("Gagal memuat model YOLOv8: %s. Mode fallback aktif.", e)
-                self._model = None
-        return self._model
+                self.__model = None
+        return self.__model
 
     @property
     def ocr(self):
         """Lazy load EasyOCR reader."""
-        if self._ocr is None:
+        if self.__ocr is None:
             try:
                 from ocr_engine import LicensePlateOCR
-                self._ocr = LicensePlateOCR()
+                self.__ocr = LicensePlateOCR()
             except Exception as e:
                 logger.warning("Gagal menginisialisasi OCR: %s", e)
-                self._ocr = None
-        return self._ocr
+                self.__ocr = None
+        return self.__ocr
 
     def analyze(
         self,
@@ -438,8 +433,6 @@ class YOLOv8VisionClient(VisionClient):
         start_time = time.time()
         image_path_str = str(image_input) if isinstance(image_input, (str, Path)) else (image_name or "in_memory_image")
 
-        # Lazy import: OpenCV & NumPy hanya dibutuhkan engine lokal ini, sehingga
-        # Mock/Gemini/GPT-4 tetap bisa dipakai tanpa dependensi Computer Vision.
         try:
             import cv2
             import numpy as np
@@ -534,7 +527,6 @@ class YOLOv8VisionClient(VisionClient):
                         except Exception:
                             pass
 
-                # Asosiasi pengendara dan evaluasi kepatuhan helm untuk sepeda motor
                 for v_name, v_conf, (vx1, vy1, vx2, vy2) in vehicles:
                     if v_name == "motorcycle":
                         associated_rider = None
