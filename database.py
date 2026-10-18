@@ -51,62 +51,62 @@ class DatabaseManager:
             with self._connection() as conn:
                 cursor = conn.cursor()
 
-            # Tabel Log Lalu Lintas (Semua kendaraan melintas)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS traffic_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    track_id INTEGER NOT NULL,
-                    vehicle_type TEXT NOT NULL,
-                    direction TEXT DEFAULT 'MENDEKAT',
-                    confidence REAL DEFAULT 0.0
+                # Tabel Log Lalu Lintas (Semua kendaraan melintas)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS traffic_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        track_id INTEGER NOT NULL,
+                        vehicle_type TEXT NOT NULL,
+                        direction TEXT DEFAULT 'MENDEKAT',
+                        confidence REAL DEFAULT 0.0
+                    )
+                    """
                 )
-                """
-            )
 
-            # Tabel Catatan Pelanggaran
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS violations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    track_id INTEGER,
-                    vehicle_type TEXT NOT NULL,
-                    license_plate TEXT DEFAULT 'TIDAK_TERBACA',
-                    violation_type TEXT NOT NULL,
-                    helmet_status TEXT DEFAULT 'TIDAK_DIKETAHUI',
-                    gemini_safety_validation TEXT,
-                    gemini_confidence REAL DEFAULT 0.0,
-                    severity TEXT DEFAULT 'MEDIUM',
-                    status_tilang TEXT DEFAULT 'PENDING_REVIEW',
-                    evidence_rider_path TEXT,
-                    evidence_plate_path TEXT
+                # Tabel Catatan Pelanggaran
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS violations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        track_id INTEGER,
+                        vehicle_type TEXT NOT NULL,
+                        license_plate TEXT DEFAULT 'TIDAK_TERBACA',
+                        violation_type TEXT NOT NULL,
+                        helmet_status TEXT DEFAULT 'TIDAK_DIKETAHUI',
+                        gemini_safety_validation TEXT,
+                        gemini_confidence REAL DEFAULT 0.0,
+                        severity TEXT DEFAULT 'MEDIUM',
+                        status_tilang TEXT DEFAULT 'PENDING_REVIEW',
+                        evidence_rider_path TEXT,
+                        evidence_plate_path TEXT
+                    )
+                    """
                 )
-                """
-            )
 
-            # Tabel Validasi Dokumen (SIM / STNK)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS document_validations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    document_type TEXT NOT NULL,
-                    document_number TEXT,
-                    holder_name TEXT,
-                    extracted_plate TEXT,
-                    target_detected_plate TEXT,
-                    plate_match_status TEXT,
-                    expiry_date TEXT,
-                    is_expired INTEGER DEFAULT 0,
-                    legal_status TEXT,
-                    gemini_raw_response TEXT,
-                    document_image_path TEXT
+                # Tabel Validasi Dokumen (SIM / STNK)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS document_validations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        document_type TEXT NOT NULL,
+                        document_number TEXT,
+                        holder_name TEXT,
+                        extracted_plate TEXT,
+                        target_detected_plate TEXT,
+                        plate_match_status TEXT,
+                        expiry_date TEXT,
+                        is_expired INTEGER DEFAULT 0,
+                        legal_status TEXT,
+                        gemini_raw_response TEXT,
+                        document_image_path TEXT
+                    )
+                    """
                 )
-                """
-            )
-            conn.commit()
+                conn.commit()
 
     def log_traffic_vehicle(
         self,
