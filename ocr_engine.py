@@ -205,8 +205,8 @@ class LicensePlateOCR:
             return "TIDAK_TERBACA", 0.0
 
     def _heuristic_fallback_reader(self, plate_crop: np.ndarray) -> Tuple[str, float]:
-        """Metode cadangan jika EasyOCR offline."""
-        return "B 1234 ABC (MOCK)", 0.85
+        """Metode cadangan jika EasyOCR offline: jangan mengarang plat nomor."""
+        return "TIDAK_TERBACA", 0.0
 
 
 # Singleton instance
