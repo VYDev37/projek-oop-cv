@@ -48,7 +48,7 @@ class DatabaseManager:
         """Inisialisasi skema tabel jika belum ada."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.__write_lock:
-            with self._get_connection() as conn:
+            with self._connection() as conn:
                 cursor = conn.cursor()
 
             # Tabel Log Lalu Lintas (Semua kendaraan melintas)
@@ -119,7 +119,7 @@ class DatabaseManager:
         """Mencatat kendaraan yang terdeteksi melintas."""
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self.__write_lock:
-            with self._get_connection() as conn:
+            with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -151,7 +151,7 @@ class DatabaseManager:
         validation_json = json.dumps(gemini_safety_validation or {}, ensure_ascii=False)
 
         with self.__write_lock:
-            with self._get_connection() as conn:
+            with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -201,7 +201,7 @@ class DatabaseManager:
         raw_json = json.dumps(gemini_raw_response or {}, ensure_ascii=False)
 
         with self.__write_lock:
-            with self._get_connection() as conn:
+            with self._connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -233,7 +233,7 @@ class DatabaseManager:
 
     def get_violations_dataframe(self, limit: Optional[int] = None) -> pd.DataFrame:
         """Mengambil data pelanggaran sebagai Pandas DataFrame."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             query = "SELECT * FROM violations ORDER BY id DESC"
             if limit:
                 query += f" LIMIT {limit}"
@@ -242,7 +242,7 @@ class DatabaseManager:
 
     def get_traffic_logs_dataframe(self, limit: Optional[int] = None) -> pd.DataFrame:
         """Mengambil data log arus lalu lintas sebagai Pandas DataFrame."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             query = "SELECT * FROM traffic_logs ORDER BY id DESC"
             if limit:
                 query += f" LIMIT {limit}"
@@ -251,7 +251,7 @@ class DatabaseManager:
 
     def get_document_validations_dataframe(self, limit: Optional[int] = None) -> pd.DataFrame:
         """Mengambil data log validasi dokumen sebagai Pandas DataFrame."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             query = "SELECT * FROM document_validations ORDER BY id DESC"
             if limit:
                 query += f" LIMIT {limit}"
@@ -288,7 +288,7 @@ class DatabaseManager:
 
     def get_system_statistics(self) -> Dict[str, Any]:
         """Menghitung ringkasan statistik pemantauan lalu lintas."""
-        with self._get_connection() as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
 
             # Total kendaraan terhitung
