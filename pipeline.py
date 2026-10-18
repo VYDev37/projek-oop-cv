@@ -323,11 +323,11 @@ class TrafficMonitoringPipeline:
                     severity_level="NONE",
                     confidence_score=0.95,
                     officer_notes="Kendaraan tertutup, kepatuhan helm standar.",
-                    is_simulated = getattr(safety_result, "_simulated", False),
-                    recommended_action="LEPASKAN"
+                    recommended_action="LEPASKAN",
                 )
 
             # Status Pelanggaran
+            is_simulated = getattr(safety_result, "_simulated", False)
             is_violation = safety_result.violation_detected
             if is_violation:
                 total_violations += 1
@@ -336,7 +336,11 @@ class TrafficMonitoringPipeline:
                     if not safety_result.is_helmet_present
                     else ViolationType.NON_STANDARD.value
                 )
-                status_tilang = EnforcementStatus.CONFIRMED_TICKET.value
+                status_tilang = (
+                    EnforcementStatus.PENDING_REVIEW.value
+                    if is_simulated
+                    else EnforcementStatus.CONFIRMED_TICKET.value
+                )
                 helmet_status = (
                     HelmetStatus.NOT_WORN.value
                     if not safety_result.is_helmet_present
