@@ -62,6 +62,7 @@ class RiderSafetyValidation(BaseModel):
     recommended_action: str = Field(
         description="Rekomendasi tindakan: LEPASKAN, PERINGATAN, atau TILANG_ELEKTRONIK."
     )
+    _simulated: bool = PrivateAttr(default=False)
 
 
 class DocumentValidation(BaseModel):
