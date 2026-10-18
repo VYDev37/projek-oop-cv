@@ -24,15 +24,15 @@ class PhotoCollectionIterator(Iterator[PhotoAnalysisResult]):
 
     def __init__(self, photos: List[PhotoAnalysisResult]):
         self.__photos = photos
-        self._index = 0
+        self.__index = 0
 
     def __iter__(self) -> "PhotoCollectionIterator":
         return self
 
     def __next__(self) -> PhotoAnalysisResult:
-        if self._index < len(self.__photos):
-            photo = self.__photos[self._index]
-            self._index += 1
+        if self.__index < len(self.__photos):
+            photo = self.__photos[self.__index]
+            self.__index += 1
             return photo
         raise StopIteration
 
