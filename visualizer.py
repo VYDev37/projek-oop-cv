@@ -88,7 +88,16 @@ class TrafficVisualizer:
         """Menggambar hasil inspeksi ETLE statis dengan indikator kepatuhan (Hijau) atau pelanggaran (Merah)."""
         annotated = frame.copy()
         for item in inspections:
-            vx1, vy1, vx2, vy2 = item["bbox"]
+            bbox = item.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+            vx1, vy1, vx2, vy2 = bbox
+            vx1 = max(0, int(vx1))
+            vy1 = max(0, int(vy1))
+            vx2 = min(annotated.shape[1], int(vx2))
+            vy2 = min(annotated.shape[0], int(vy2))
+            if vx2 <= vx1 or vy2 <= vy1:
+                continue
             is_violation = item.get("violation_detected", False)
             box_color = (
                 self.palette.get("violation", (0, 0, 255))
@@ -119,6 +128,64 @@ class TrafficVisualizer:
                 (255, 255, 255) if is_violation else (0, 0, 0),
                 2,
             )
+
+            # Sorotan Khusus Bounding Box Plat Nomor (Kuning Cerah - HANYA jika plat valid terbaca)
+            plate_box = item.get("plate_bbox")
+            if (
+                plate_box is not None
+                and plate
+                and plate != "TIDAK_TERBACA"
+                and not plate.startswith("TIDAK")
+                and len(plate.strip()) >= 3
+            ):
+                px1, py1, px2, py2 = plate_box
+                plate_color = (0, 255, 255)  # BGR Yellow
+                cv2.rectangle(annotated, (px1, py1), (px2, py2), plate_color, 2)
+                p_text = f"PLAT: {plate}"
+                cv2.rectangle(
+                    annotated,
+                    (px1, max(0, py1 - 20)),
+                    (px1 + len(p_text) * 9, max(20, py1)),
+                    (20, 20, 20),
+                    -1,
+                )
+                cv2.putText(
+                    annotated,
+                    p_text,
+                    (px1 + 4, max(14, py1 - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.42,
+                    plate_color,
+                    1,
+                )
+
+            # Sorotan Khusus Pengendara / Helm (hanya untuk motor)
+            rider_box = item.get("rider_bbox")
+            if rider_box is not None and item.get("vehicle_type") == "motorcycle":
+                rx1, ry1, rx2, ry2 = rider_box
+                rx1 = max(0, rx1)
+                ry1 = max(0, ry1)
+                rx2 = min(annotated.shape[1], rx2)
+                ry2 = min(annotated.shape[0], ry2)
+                rider_color = (255, 165, 0)  # BGR Cyan/Orange
+                cv2.rectangle(annotated, (rx1, ry1), (rx2, ry2), rider_color, 2)
+                r_text = f"HELM: {item.get('helmet_status', 'WORN')}"
+                cv2.rectangle(
+                    annotated,
+                    (rx1, max(0, ry1 - 18)),
+                    (rx1 + len(r_text) * 8, max(18, ry1)),
+                    (20, 20, 20),
+                    -1,
+                )
+                cv2.putText(
+                    annotated,
+                    r_text,
+                    (rx1 + 3, max(13, ry1 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.38,
+                    rider_color,
+                    1,
+                )
         return annotated
 
     def draw_dashboard_overlay(

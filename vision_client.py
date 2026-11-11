@@ -236,7 +236,7 @@ class GeminiVisionClient(VisionClient):
                 "4. Tentukan satu kategori utama (Alam, Makanan, Perkotaan, Dokumen, Kendaraan, Seni, Potret, dll).\n"
                 "5. Moderasi konten: tentukan apakah foto ini aman (is_safe=True) atau berbahaya/tidak senonoh/kekerasan (is_safe=False).\n"
                 "6. Sebutkan 2-4 warna dominan.\n"
-                "7. Jika terdapat teks pada gambar, baca teks tersebut ke ocr_text (kosongkan jika tidak ada teks)."
+                "7. Jika terdapat teks penting pada gambar (misal plat nomor kendaraan, judul dokumen, atau papan rambu), baca teks tersebut ke ocr_text; abaikan watermark media/URL situs web seperti www.xxx.com dan kosongkan jika tidak ada teks relevan."
             )
 
             config = types.GenerateContentConfig(
@@ -514,46 +514,98 @@ class YOLOv8VisionClient(VisionClient):
                             2,
                         )
 
-                # Evaluasi kendaraan dan baca plat nomor via OCR
+                # Evaluasi kendaraan dan baca plat nomor secara presisi via OCR & CRAFT
                 for v_name, v_conf, (vx1, vy1, vx2, vy2) in vehicles:
-                    w_box = vx2 - vx1
-                    h_box = vy2 - vy1
-                    if v_name == "motorcycle":
-                        px1 = int(vx1 + 0.15 * w_box)
-                        px2 = int(vx2 - 0.15 * w_box)
-                        py1 = int(vy1 + 0.65 * h_box)
-                        py2 = vy2
-                    else:
-                        px1 = int(vx1 + 0.20 * w_box)
-                        px2 = int(vx2 - 0.20 * w_box)
-                        py1 = int(vy1 + 0.70 * h_box)
-                        py2 = vy2
+                    w_box = max(1, vx2 - vx1)
+                    h_box = max(1, vy2 - vy1)
+                    search_y1 = max(0, vy1 + int(0.30 * h_box))
+                    vehicle_search_roi = cv_img[search_y1:vy2, vx1:vx2]
 
-                    plate_crop = cv_img[py1:py2, px1:px2]
-                    if not ocr_plate_text and self.ocr and plate_crop.size > 0:
+                    plate_located = False
+                    if self.ocr and vehicle_search_roi.size > 0:
                         try:
-                            plate_res, _ = self.ocr.read_license_plate(plate_crop)
-                            if plate_res and plate_res != "TIDAK_TERBACA":
-                                ocr_plate_text = plate_res
+                            p_text, p_conf, g_box, p_crop = self.ocr.locate_and_read_plate(
+                                vehicle_search_roi, offset=(vx1, search_y1)
+                            )
+                            if g_box is not None and p_crop is not None and p_text and p_text != "TIDAK_TERBACA":
+                                plate_located = True
+                                g_x1, g_y1, g_x2, g_y2 = g_box
+                                cv2.rectangle(annotated_frame, (g_x1, g_y1), (g_x2, g_y2), (0, 255, 255), 2)
+                                p_label = f"PLAT: {p_text}"
+                                cv2.putText(
+                                    annotated_frame,
+                                    p_label,
+                                    (g_x1, max(15, g_y1 - 5)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.45,
+                                    (0, 255, 255),
+                                    1,
+                                )
+                                boxes_out.append({
+                                    "class": "license_plate",
+                                    "confidence": round(p_conf or 0.85, 2),
+                                    "bbox": [g_x1, g_y1, g_x2, g_y2],
+                                })
+                                if "plat_nomor" not in detected_objects:
+                                    detected_objects.append("plat_nomor")
+                                if not ocr_plate_text:
+                                    ocr_plate_text = p_text
                         except Exception:
                             pass
+
+                    # Fallback ke estimasi geometris jika detektor teks belum menemukan koordinat
+                    if not plate_located:
+                        if v_name == "motorcycle":
+                            px1 = int(vx1 + 0.12 * w_box)
+                            px2 = int(vx2 - 0.12 * w_box)
+                            py1 = int(vy1 + 0.60 * h_box)
+                            py2 = vy2
+                        else:
+                            px1 = int(vx1 + 0.15 * w_box)
+                            px2 = int(vx2 - 0.15 * w_box)
+                            py1 = int(vy1 + 0.65 * h_box)
+                            py2 = vy2
+
+                        plate_crop = cv_img[py1:py2, px1:px2]
+                        if not ocr_plate_text and self.ocr and plate_crop.size > 0:
+                            try:
+                                plate_res, _ = self.ocr.read_license_plate(plate_crop)
+                                if plate_res and plate_res != "TIDAK_TERBACA":
+                                    ocr_plate_text = plate_res
+                            except Exception:
+                                pass
 
                 for v_name, v_conf, (vx1, vy1, vx2, vy2) in vehicles:
                     if v_name == "motorcycle":
                         associated_rider = None
+                        best_rider_score = -1.0
+                        v_cx = (vx1 + vx2) / 2
+                        vw = max(1, vx2 - vx1)
+                        vh = max(1, vy2 - vy1)
+
                         for p_conf, (px1, py1, px2, py2) in persons:
+                            pw = max(1, px2 - px1)
+                            p_cx = (px1 + px2) / 2
+                            # Cek posisi duduk pada motor
+                            if not (vx1 - 0.05 * vw <= p_cx <= vx2 + 0.05 * vw):
+                                continue
+                            if py1 > vy1 + 0.50 * vh or py2 > vy2 + 0.15 * vh:
+                                continue
+
                             overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
-                            rider_w = max(1, px2 - px1)
-                            if overlap_x / rider_w > 0.35 and (py2 > vy1 and py1 < vy2):
-                                associated_rider = (px1, py1, px2, py2)
-                                break
+                            overlap_ratio = overlap_x / pw
+                            if overlap_ratio >= 0.35:
+                                score = overlap_ratio * 1.5 - abs(p_cx - v_cx) / vw
+                                if score > best_rider_score:
+                                    best_rider_score = score
+                                    associated_rider = (px1, py1, px2, py2)
 
                         # Crop pengendara
                         if associated_rider is not None:
                             rx1, ry1, rx2, ry2 = associated_rider
                             rider_crop = cv_img[ry1:ry2, rx1:rx2]
                         else:
-                            rider_crop = cv_img[vy1:int(vy1 + 0.6 * (vy2 - vy1)), vx1:vx2]
+                            rider_crop = cv_img[vy1:int(vy1 + 0.55 * (vy2 - vy1)), vx1:vx2]
 
                         # Validasi AI Keselamatan Pengendara
                         try:
@@ -976,6 +1028,11 @@ class VisionClientFactory:
         if not (isinstance(client_cls, type) and issubclass(client_cls, VisionClient)):
             raise TypeError("client_cls harus berupa kelas turunan VisionClient.")
         cls.__registry[name.strip().lower()] = client_cls
+
+    @classmethod
+    def unregister(cls, name: str) -> bool:
+        """Menghapus provider dari registry. Mengembalikan True jika berhasil dihapus."""
+        return cls.__registry.pop(name.strip().lower(), None) is not None
 
     @classmethod
     def available_providers(cls) -> List[str]:

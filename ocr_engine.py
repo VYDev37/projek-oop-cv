@@ -204,6 +204,164 @@ class LicensePlateOCR:
             logger.error("Terjadi kesalahan saat memproses OCR: %s", e)
             return "TIDAK_TERBACA", 0.0
 
+    def detect_plate_candidate_contour(self, roi: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Mendeteksi area kandidat plat nomor berbasis kontur morfologi (aspect ratio 2.0 - 5.5).
+        Menggunakan Sobel vertical edge dan morphological close untuk menyatukan karakter plat.
+        """
+        if roi is None or roi.size == 0:
+            return None
+        h, w = roi.shape[:2]
+        if h < 20 or w < 40:
+            return None
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if len(roi.shape) == 3 else roi.copy()
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # Sobel gradien horizontal (menonjolkan karakter vertikal pada plat)
+        sobelx = cv2.Sobel(blurred, cv2.CV_8U, 1, 0, ksize=3)
+        _, thresh = cv2.threshold(sobelx, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # Morphological close untuk menggabungkan teks plat menjadi satu blok persegi panjang
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 5))
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates = []
+        for c in contours:
+            x, y, cw, ch = cv2.boundingRect(c)
+            if ch == 0 or cw == 0:
+                continue
+            aspect_ratio = float(cw) / float(ch)
+            area = cw * ch
+            # Plat nomor standar memiliki aspect ratio ~2.0 hingga 5.5 dan luas proporsional
+            if 2.0 <= aspect_ratio <= 5.5 and area >= (w * h * 0.005) and cw >= 35 and ch >= 12:
+                candidates.append((area, (x, y, x + cw, y + ch)))
+
+        if candidates:
+            # Urutkan berdasarkan proporsi area terbaik
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            for _, box in candidates:
+                bx1, by1, bx2, by2 = box
+                if (bx2 - bx1) < w * 0.9 and (by2 - by1) < h * 0.5:
+                    return box
+            return candidates[0][1]
+
+        return None
+
+    def locate_and_read_plate(
+        self,
+        vehicle_crop: np.ndarray,
+        offset: Tuple[int, int] = (0, 0),
+    ) -> Tuple[str, float, Optional[Tuple[int, int, int, int]], Optional[np.ndarray]]:
+        """
+        Menemukan lokasi presisi (bounding box) plat nomor dalam area kendaraan dan membaca teksnya.
+
+        Args:
+            vehicle_crop: Citra area kendaraan (OpenCV BGR).
+            offset: Offset koordinat (vx1, vy1) terhadap frame global.
+
+        Returns:
+            Tuple[str, float, Optional[Tuple[int, int, int, int]], Optional[np.ndarray]]:
+                - Teks plat nomor terformat
+                - Skor keyakinan OCR (0.0 - 1.0)
+                - Bounding box plat dalam frame global (gx1, gy1, gx2, gy2)
+                - Potongan citra plat presisi
+        """
+        if vehicle_crop is None or vehicle_crop.size == 0:
+            return "TIDAK_TERBACA", 0.0, None, None
+
+        vh, vw = vehicle_crop.shape[:2]
+        off_x, off_y = offset
+
+        # 1. Prioritas Utama: Ekstraksi Text Bounding Box via EasyOCR (CRAFT)
+        if self.reader is not None:
+            try:
+                results = self.reader.readtext(
+                    vehicle_crop,
+                    allowlist="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ ",
+                    detail=1,
+                )
+
+                best_plate_text = ""
+                best_conf = 0.0
+                best_box = None
+
+                for bbox_coords, raw_text, conf in results:
+                    cleaned = self.clean_plate_text(raw_text)
+                    if cleaned:
+                        # Ditemukan teks yang secara langsung cocok dengan pola plat Indonesia
+                        pts = np.array(bbox_coords).astype(int)
+                        bx1, by1 = np.min(pts, axis=0)
+                        bx2, by2 = np.max(pts, axis=0)
+
+                        if conf > best_conf:
+                            best_conf = conf
+                            best_plate_text = cleaned
+                            best_box = (bx1, by1, bx2, by2)
+
+                # Jika belum menemukan teks plat tunggal yang cocok penuh, periksa gabungan teks
+                if not best_box and results:
+                    # Ambil semua box dengan confidence memadai
+                    valid_items = [item for item in results if item[2] >= 0.2]
+                    combined_text = " ".join([item[1] for item in valid_items])
+                    cleaned_combined = self.clean_plate_text(combined_text)
+
+                    if cleaned_combined:
+                        # Gabungkan bounding box dari seluruh kata yang valid
+                        all_pts = np.concatenate([np.array(item[0]).astype(int) for item in valid_items])
+                        bx1, by1 = np.min(all_pts, axis=0)
+                        bx2, by2 = np.max(all_pts, axis=0)
+                        best_plate_text = cleaned_combined
+                        best_conf = float(np.mean([item[2] for item in valid_items]))
+                        best_box = (bx1, by1, bx2, by2)
+
+                if best_box is not None:
+                    bx1, by1, bx2, by2 = best_box
+                    bw = bx2 - bx1
+                    bh = by2 - by1
+
+                    # Tambahkan margin aman di sekitar lempeng plat nomor
+                    mx = max(8, int(bw * 0.15))
+                    my = max(6, int(bh * 0.25))
+
+                    crop_x1 = max(0, bx1 - mx)
+                    crop_y1 = max(0, by1 - my)
+                    crop_x2 = min(vw, bx2 + mx)
+                    crop_y2 = min(vh, by2 + my)
+
+                    exact_crop = vehicle_crop[crop_y1:crop_y2, crop_x1:crop_x2]
+                    global_box = (crop_x1 + off_x, crop_y1 + off_y, crop_x2 + off_x, crop_y2 + off_y)
+
+                    return best_plate_text, round(best_conf, 2), global_box, exact_crop
+
+            except Exception as e:
+                logger.debug("Pencarian box teks EasyOCR dilewati: %s", e)
+
+        # 2. Prioritas Kedua: Deteksi Kontur Morfologi Persegi Panjang Plat
+        contour_box = self.detect_plate_candidate_contour(vehicle_crop)
+        if contour_box is not None:
+            cx1, cy1, cx2, cy2 = contour_box
+            cw = cx2 - cx1
+            ch = cy2 - cy1
+            mx = max(4, int(cw * 0.08))
+            my = max(4, int(ch * 0.12))
+
+            crop_x1 = max(0, cx1 - mx)
+            crop_y1 = max(0, cy1 - my)
+            crop_x2 = min(vw, cx2 + mx)
+            crop_y2 = min(vh, cy2 + my)
+
+            contour_crop = vehicle_crop[crop_y1:crop_y2, crop_x1:crop_x2]
+            global_box = (crop_x1 + off_x, crop_y1 + off_y, crop_x2 + off_x, crop_y2 + off_y)
+
+            # Coba baca teks dari crop kontur; hanya terima jika menghasilkan teks plat valid
+            plate_text, conf = self.read_license_plate(contour_crop)
+            if plate_text and plate_text != "TIDAK_TERBACA":
+                return plate_text, conf, global_box, contour_crop
+
+        return "TIDAK_TERBACA", 0.0, None, None
+
     def _heuristic_fallback_reader(self, plate_crop: np.ndarray) -> Tuple[str, float]:
         """Metode cadangan jika EasyOCR offline."""
         return "B 1234 ABC (MOCK)", 0.85

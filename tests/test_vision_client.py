@@ -317,3 +317,59 @@ class TestGPT4VisionClient:
 
         assert exc_info.value.status_code == 401
         assert "openai api error" in str(exc_info.value).lower()
+
+
+class TestPlateLocalizationAndVisualizer:
+    """Pengujian untuk lokalisasi presisi plat nomor dan render visualizer."""
+
+    def test_locate_and_read_plate_empty_safe(self):
+        from ocr_engine import plate_ocr
+        text, conf, g_box, crop = plate_ocr.locate_and_read_plate(None)
+        assert text == "TIDAK_TERBACA"
+        assert conf == 0.0
+        assert g_box is None
+        assert crop is None
+
+    def test_detect_plate_candidate_contour_synthetic(self):
+        import numpy as np
+        import cv2
+        from ocr_engine import plate_ocr
+
+        # Buat gambar sintetis berlatar belakang gelap dengan lempeng persegi panjang putih (aspect ratio ~3:1)
+        canvas = np.zeros((300, 400, 3), dtype=np.uint8)
+        # Gambar plat di tengah: x=100..280 (lebar 180), y=150..210 (tinggi 60), aspect ratio = 3.0
+        cv2.rectangle(canvas, (100, 150), (280, 210), (255, 255, 255), -1)
+        # Tambahkan teks hitam di dalam plat untuk memicu gradien Sobel vertikal
+        cv2.putText(canvas, "B 1234 ABC", (110, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        box = plate_ocr.detect_plate_candidate_contour(canvas)
+        assert box is not None
+        bx1, by1, bx2, by2 = box
+        assert bx2 > bx1
+        assert by2 > by1
+        # Memastikan deteksi kontur berada di sekitar area plat
+        assert 80 <= bx1 <= 120
+        assert 130 <= by1 <= 170
+
+    def test_visualizer_renders_plate_and_rider_highlights(self):
+        import numpy as np
+        from visualizer import TrafficVisualizer
+
+        vis = TrafficVisualizer()
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        inspections = [{
+            "track_id": 1,
+            "vehicle_type": "motorcycle",
+            "bbox": (50, 100, 250, 400),
+            "plate_bbox": (100, 340, 200, 380),
+            "rider_bbox": (80, 100, 220, 250),
+            "license_plate": "B 1234 ABC",
+            "violation_detected": False,
+            "helmet_status": "WORN",
+        }]
+
+        annotated = vis.draw_inspected_static_objects(dummy_frame, inspections)
+        assert annotated is not None
+        assert annotated.shape == dummy_frame.shape
+        # Pastikan kanvas tidak lagi hitam kosong (terdapat piksel anotasi berwarna)
+        assert np.count_nonzero(annotated) > 0

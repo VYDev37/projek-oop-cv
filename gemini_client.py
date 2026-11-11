@@ -102,6 +102,106 @@ class DocumentValidation(BaseModel):
     )
 
 
+class VehicleSceneResult(BaseModel):
+    """Hasil analisis holistik satu kendaraan dan pengendaranya pada citra lalu lintas penuh."""
+    vehicle_type: str = Field(
+        description="Jenis kendaraan: motorcycle, car, bus, truck, atau bicycle."
+    )
+    vehicle_bbox_1000: List[int] = Field(
+        default_factory=list,
+        description=(
+            "Koordinat bounding box kendaraan dalam skala ternormalisasi 0-1000 format "
+            "[ymin, xmin, ymax, xmax]. Wajib melingkupi badan kendaraan."
+        ),
+    )
+    rider_bbox_1000: List[int] = Field(
+        default_factory=list,
+        description=(
+            "Khusus sepeda motor: bounding box pengendara (dan penumpang) yang benar-benar "
+            "menunggangi motor ini dalam skala 0-1000 format [ymin, xmin, ymax, xmax]. "
+            "JANGAN masukkan polisi atau pejalan kaki di tepi jalan. Kosongkan [] jika bukan motor."
+        ),
+    )
+    plate_bbox_1000: List[int] = Field(
+        default_factory=list,
+        description=(
+            "Koordinat bounding box plat nomor kendaraan ini dalam skala 0-1000 format "
+            "[ymin, xmin, ymax, xmax]. Kosongkan [] jika plat tidak terlihat jelas."
+        ),
+    )
+    license_plate: str = Field(
+        default="TIDAK_TERBACA",
+        description=(
+            "Nomor polisi TNKB kendaraan jika terbaca jelas (misal 'BM 6116 OPP' atau 'B 1234 ABC'). "
+            "Isi 'TIDAK_TERBACA' jika buram/tidak terlihat. DILARANG mengisi watermark media/URL."
+        ),
+    )
+    rider_role_description: str = Field(
+        default="",
+        description=(
+            "Ciri singkat posisi & visual kendaraan/pengendara agar mudah diidentifikasi "
+            "(misal: 'Motor tengah, pengendara jaket merah & penumpang tanpa helm')."
+        ),
+    )
+    is_helmet_present: bool = Field(
+        description=(
+            "True jika pengemudi dan penumpang motor memakai helm; False jika pengemudi atau "
+            "penumpang tidak memakai helm. Untuk mobil/bus/truk isi True."
+        ),
+    )
+    helmet_worn_properly: bool = Field(
+        description="True jika helm terpasang dengan benar di kepala, False jika tidak atau tidak memakai helm."
+    )
+    helmet_type: str = Field(
+        description="Jenis helm: FULL_FACE, HALF_FACE, CATOK_NON_STANDAR, TIDAK_ADA, atau BUKAN_SEPEDA_MOTOR."
+    )
+    jacket_present: bool = Field(
+        description="True jika pengendara mengenakan jaket/pakaian pelindung lengan panjang."
+    )
+    other_attributes: List[str] = Field(
+        default_factory=list,
+        description="Atribut/observasi tambahan, misal: ['penumpang tanpa helm', 'seragam sekolah', 'sepatu']."
+    )
+    violation_detected: bool = Field(
+        description="True jika ditemukan pelanggaran keselamatan berkendara pada unit kendaraan ini."
+    )
+    violation_reasons: List[str] = Field(
+        default_factory=list,
+        description="Alasan pelanggaran secara spesifik berdasarkan bukti visual."
+    )
+    severity_level: str = Field(
+        description="Tingkat keparahan pelanggaran: NONE, LOW, MEDIUM, HIGH, atau CRITICAL."
+    )
+    confidence_score: float = Field(
+        description="Skor keyakinan analisis antara 0.0 sampai 1.0."
+    )
+    officer_notes: str = Field(
+        description="Catatan naratif resmi untuk petugas ETLE terkait unit kendaraan ini."
+    )
+    recommended_action: str = Field(
+        description="Rekomendasi tindakan: LEPASKAN, PERINGATAN, atau TILANG_ELEKTRONIK."
+    )
+
+
+class TrafficSceneAnalysis(BaseModel):
+    """Skema respon terstruktur analisis holistik seluruh adegan lalu lintas (full-image)."""
+    scene_summary: str = Field(
+        description=(
+            "Ringkasan objektif kondisi lalu lintas pada citra penuh, termasuk membedakan "
+            "petugas/pejalan kaki di tepi jalan dengan pengendara aktif."
+        )
+    )
+    vehicles: List[VehicleSceneResult] = Field(
+        default_factory=list,
+        description="Daftar setiap kendaraan bermotor yang teridentifikasi untuk diaudit ETLE."
+    )
+    overall_confidence: float = Field(
+        default=0.85,
+        description="Tingkat keyakinan keseluruhan analisis adegan antara 0.0 sampai 1.0."
+    )
+    _simulated: bool = PrivateAttr(default=False)
+
+
 # --- Klien Gemini AI ---
 
 class GeminiTrafficClient:
@@ -205,6 +305,73 @@ class GeminiTrafficClient:
             if MOCK_GEMINI_IF_NO_KEY:
                 logger.info("Beralih ke fallback simulasi keselamatan...")
                 return self._mock_rider_safety_analysis()
+            raise
+
+    def analyze_traffic_scene(
+        self,
+        full_image: Union[str, Path, bytes, np.ndarray, Image.Image],
+        model_name: Optional[str] = None,
+    ) -> TrafficSceneAnalysis:
+        """
+        Analisis holistik full-image seluruh adegan lalu lintas via Gemini Multimodal.
+        Mengidentifikasi setiap kendaraan, memisahkan pengendara aktif dari pejalan kaki/polisi,
+        memeriksa helm pengendara & penumpang secara independen, serta membaca plat TNKB resmi.
+        """
+        active_model = model_name or self.model_name
+
+        if self.client is None:
+            logger.info("Menggunakan fallback simulasi analisis adegan lalu lintas penuh...")
+            return self._mock_traffic_scene_analysis()
+
+        try:
+            image_bytes = self._prepare_image_bytes(full_image)
+            image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+
+            system_instruction = (
+                "Anda adalah Inspektur Forensik Keselamatan Lalu Lintas ETLE (Electronic Traffic Law Enforcement) Korlantas Polri berbasis AI.\n"
+                "Anda menerima CITRA PENUH jalan raya. Tugas Anda adalah mengaudit SETIAP kendaraan bermotor secara individual dan akurat sesuai UU No. 22 Tahun 2009 tentang LLAJ.\n\n"
+                "ATURAN KETAT ANTI-BIAS & AKURASI:\n"
+                "1. IDENTIFIKASI SETIAP KENDARAAN TERPISAH: Deteksi seluruh sepeda motor, mobil, bus, atau truk yang terlihat cukup jelas di citra "
+                "(depan, tengah, maupun latar belakang yang masih dapat diamati kepalanya). Masukkan masing-masing sebagai entri terpisah di `vehicles`.\n"
+                "2. PISAHKAN PENGENDARA VS POLISI/PEJALAN KAKI: Jangan pernah menganggap helm milik petugas polisi atau pejalan kaki yang berdiri di pinggir jalan sebagai helm pengendara sepeda motor! "
+                "Hanya audit orang yang benar-benar duduk/menunggangi unit sepeda motor tersebut (pengemudi maupun penumpang). "
+                "Berikan `rider_bbox_1000` tepat melingkupi pengendara di atas motor tersebut saja.\n"
+                "3. AUDIT HELM INDEPENDEN PER MOTOR (TERMASUK penumpang): Periksa visual kepala secara langsung untuk tiap motor. "
+                "Jangan menyamaratakan status helm dari satu motor ke motor lain! Jika pengemudi ATAU penumpang pada satu motor terlihat jelas tidak memakai helm (rambut/wajah terbuka tanpa pelindung kepala), "
+                "WAJIB set `is_helmet_present = False`, `helmet_type = 'TIDAK_ADA'`, `violation_detected = True`, dan `recommended_action = 'TILANG_ELEKTRONIK'`.\n"
+                "4. PEMBACAAN PLAT NOMOR (TNKB RESMI SAJA): Isi `license_plate` HANYA jika karakter pelat kendaraan tersebut benar-benar terlihat dan terbaca jelas (misal 'BM 6116 OPP' atau 'B 1234 ABC'). "
+                "DILARANG KERAS menyalin watermark media (seperti 'www.antaranews.com'), URL situs, logo, atau tulisan baju ke `license_plate`! Jika pelat tertutup/buram/tidak terlihat, WAJIB isi 'TIDAK_TERBACA'.\n"
+                "5. KOORDINAT TERKENDALI SKALA 0-1000: Semua bounding box (`vehicle_bbox_1000`, `rider_bbox_1000`, `plate_bbox_1000`) menggunakan format tepat `[ymin, xmin, ymax, xmax]` dalam bilangan bulat 0 sampai 1000 "
+                "(0=atas/kiri, 1000=bawah/kanan). Jika tidak ada plat/pengendara spesifik, kosongkan list [].\n"
+                "6. JIKA BUKAN ADEGAN LALU LINTAS: Jika tidak ada kendaraan bermotor yang dapat diaudit, kembalikan `vehicles = []`."
+            )
+
+            response = self.client.models.generate_content(
+                model=active_model,
+                contents=[
+                    image_part,
+                    "Audit seluruh kendaraan, kepatuhan helm pengendara/penumpang, dan plat TNKB pada citra jalan raya penuh ini.",
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    response_schema=TrafficSceneAnalysis,
+                    temperature=0.1,
+                ),
+            )
+
+            if response.parsed:
+                return response.parsed
+
+            raw_text = response.text
+            data = json.loads(raw_text)
+            return TrafficSceneAnalysis(**data)
+
+        except Exception as e:
+            logger.error("Terjadi error saat pemanggilan Gemini API (Scene Analysis): %s", e)
+            if MOCK_GEMINI_IF_NO_KEY:
+                logger.info("Beralih ke fallback simulasi analisis adegan...")
+                return self._mock_traffic_scene_analysis()
             raise
 
     def validate_driving_document(
@@ -329,6 +496,43 @@ class GeminiTrafficClient:
                 "UU No. 22 Tahun 2009 tentang LLAJ (Tidak mengenakan helm SNI)."
             ),
             recommended_action="TILANG_ELEKTRONIK",
+        )
+        result._simulated = True
+        return result
+
+    def _mock_traffic_scene_analysis(self) -> TrafficSceneAnalysis:
+        """Simulasi analisis adegan lalu lintas penuh jika API key tidak tersedia."""
+        mock_vehicle = VehicleSceneResult(
+            vehicle_type="motorcycle",
+            vehicle_bbox_1000=[350, 250, 850, 650],
+            rider_bbox_1000=[150, 280, 620, 580],
+            plate_bbox_1000=[],
+            license_plate="TIDAK_TERBACA",
+            rider_role_description="Simulasi pengendara sepeda motor pada mode offline.",
+            is_helmet_present=False,
+            helmet_worn_properly=False,
+            helmet_type="TIDAK_ADA",
+            jacket_present=False,
+            other_attributes=["simulasi offline"],
+            violation_detected=True,
+            violation_reasons=[
+                "Simulasi deteksi pengendara sepeda motor tidak mengenakan helm SNI."
+            ],
+            severity_level="HIGH",
+            confidence_score=0.90,
+            officer_notes=(
+                "[SIMULASI - BUKAN HASIL AI NYATA] "
+                "Mode analisis full-image berjalan dalam simulasi karena GEMINI_API_KEY belum aktif."
+            ),
+            recommended_action="TILANG_ELEKTRONIK",
+        )
+        result = TrafficSceneAnalysis(
+            scene_summary=(
+                "[SIMULASI - BUKAN HASIL AI NYATA] "
+                "Ringkasan adegan lalu lintas dalam mode simulasi offline."
+            ),
+            vehicles=[mock_vehicle],
+            overall_confidence=0.90,
         )
         result._simulated = True
         return result

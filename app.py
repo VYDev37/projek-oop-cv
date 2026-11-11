@@ -4,11 +4,11 @@ Deskripsi: Antarmuka Dashboard Visual Berbasis Streamlit untuk:
            1. Live Stream Monitoring & Vehicle Counting (YOLO + ByteTrack) serta Inspeksi Foto Statis
            2. Log Pelanggaran & Galeri Bukti (Rider & Plate Crops)
            3. Validasi Dokumen SIM/STNK & Pencocokan Nopol (Gemini AI Multimodal)
-           4. Statistik Lalu Lintas, Galeri Koleksi OOP (Iterator Pattern), Moderasi Konten & Ekspor CSV
+           4. Statistik Lalu Lintas, Galeri Koleksi (Iterator Pattern), Moderasi Konten & Ekspor CSV
 """
 
+import html
 import time
-import tempfile
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
@@ -182,7 +182,7 @@ with st.sidebar:
     st.markdown("---")
     # Parameter Computer Vision
     st.subheader("⚙️ Parameter Computer Vision")
-    conf_thresh = st.slider("YOLO Confidence", 0.1, 0.9, 0.35, 0.05)
+    conf_thresh = st.slider("YOLO Confidence", 0.1, 0.9, 0.25, 0.05)
     pipeline.detector.conf_threshold = conf_thresh
 
     line_pos = st.slider("Garis Hitung Virtual (% Tinggi)", 30, 90, int(COUNTING_LINE_Y_RATIO * 100), 5)
@@ -190,7 +190,7 @@ with st.sidebar:
 
     st.markdown("---")
     # Ringkasan Koleksi
-    st.subheader("📚 Status Koleksi Foto (OOP)")
+    st.subheader("📚 Status Koleksi Foto")
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
         st.metric("Total Foto", len(st.session_state.collection))
@@ -252,7 +252,7 @@ with tabs[0]:
                     type=["jpg", "jpeg", "png"],
                 )
                 if uploaded_img is not None:
-                    static_pil_image = Image.open(uploaded_img)
+                    static_pil_image = Image.open(uploaded_img).convert("RGB")
                     static_filename_label = uploaded_img.name
                     static_image_to_process = cv2.cvtColor(np.array(static_pil_image), cv2.COLOR_RGB2BGR)
                     st.image(static_pil_image, caption=f"Foto yang Diunggah: {static_filename_label}", use_container_width=True)
@@ -260,7 +260,7 @@ with tabs[0]:
             elif source_type == "Ambil Foto Langsung (Kamera)":
                 camera_snap = st.camera_input("Ambil Foto dari Kamera Laptop / HP")
                 if camera_snap is not None:
-                    static_pil_image = Image.open(camera_snap)
+                    static_pil_image = Image.open(camera_snap).convert("RGB")
                     static_filename_label = f"camera_snap_{datetime.now().strftime('%H%M%S')}.jpg"
                     static_image_to_process = cv2.cvtColor(np.array(static_pil_image), cv2.COLOR_RGB2BGR)
                     st.image(static_pil_image, caption="Hasil Jepretan Kamera", use_container_width=True)
@@ -321,10 +321,13 @@ with tabs[0]:
                     except Exception as e:
                         st.warning(f"Catatan integrasi OOP: {e}")
 
+                    analysis_mode = summary.get("analysis_mode", "Computer Vision")
                     st.success(
-                        f"Inspeksi Selesai! Terdeteksi {summary.get('total_vehicles', 0)} kendaraan, "
-                        f"{summary.get('total_violations', 0)} pelanggaran. Hasil otomatis disimpan ke Koleksi OOP!"
+                        f"Inspeksi Selesai ({analysis_mode})! Terdeteksi {summary.get('total_vehicles', 0)} kendaraan, "
+                        f"{summary.get('total_violations', 0)} pelanggaran. Hasil otomatis disimpan ke Koleksi!"
                     )
+                    if summary.get("scene_summary"):
+                        st.info(f"🧠 **Ringkasan Adegan Gemini (Full-Image):** {summary['scene_summary']}")
 
                     col_res_img, col_res_cards = st.columns([3, 2])
                     with col_res_img:
@@ -344,22 +347,47 @@ with tabs[0]:
                                 badge_class = "badge-violation" if is_viol else "badge-success"
                                 status_label = "TILANG ELEKTRONIK" if is_viol else "PATUH ATURAN"
 
-                                st.markdown(
-                                    f"""
-                                    <div style="border: 1px solid {border_color}; background: {bg_color}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                                        <span class="{badge_class}">{status_label}</span>
-                                        <span style="float:right; font-size:0.8rem; color:#666;">ID #{item['track_id']}</span>
-                                        <br><b>Kendaraan:</b> {item['vehicle_type'].upper()}
-                                        <br><b>Plat Nomor (OCR):</b> <code>{item['license_plate']}</code>
-                                        <br><b>Status Helm:</b> {item['helmet_status']}
-                                        <br><b>Keparahan:</b> {item['severity']} | <b>Tindakan:</b> {item['recommended_action']}
-                                        <br><small style="color:#444;"><b>Catatan:</b> {item['officer_notes']}</small>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
+                                source_tag = html.escape(" ".join(str(item.get("analysis_source", "ETLE Pipeline")).split()))
+                                role_desc = html.escape(" ".join(str(item.get("rider_role_description", "")).split()))
+                                reasons = item.get("violation_reasons") or []
+                                reasons_text = "; ".join(" ".join(str(r).split()) for r in reasons if r)
+
+                                v_type = html.escape(str(item["vehicle_type"]).upper())
+                                plate_str = html.escape(" ".join(str(item["license_plate"]).split()))
+                                helmet_str = html.escape(str(item["helmet_status"]))
+                                sev_str = html.escape(str(item["severity"]))
+                                act_str = html.escape(str(item["recommended_action"]))
+                                notes_str = html.escape(" ".join(str(item["officer_notes"]).split()))
+
+                                card_parts = [
+                                    f'<div style="border: 1px solid {border_color}; background: {bg_color}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">',
+                                    f'<span class="{badge_class}">{status_label}</span>',
+                                    f'<span style="float:right; font-size:0.8rem; color:#666;">ID #{item["track_id"]} • {source_tag}</span>',
+                                ]
+                                if role_desc:
+                                    card_parts.append(f'<br><small><b>Posisi/Ciri:</b> {role_desc}</small>')
+                                card_parts.extend([
+                                    f'<br><b>Kendaraan:</b> {v_type}',
+                                    f'<br><b>Plat Nomor (OCR/AI):</b> <code>{plate_str}</code>',
+                                    f'<br><b>Status Helm:</b> {helmet_str}',
+                                    f'<br><b>Keparahan:</b> {sev_str} | <b>Tindakan:</b> {act_str}',
+                                ])
+                                if reasons_text:
+                                    card_parts.append(
+                                        f'<br><small style="color:#b71c1c;"><b>Alasan:</b> {html.escape(reasons_text)}</small>'
+                                    )
+                                card_parts.extend([
+                                    f'<br><small style="color:#444;"><b>Catatan:</b> {notes_str}</small>',
+                                    '</div>',
+                                ])
+
+                                st.markdown("\n".join(card_parts), unsafe_allow_html=True)
                         else:
-                            # Jika tidak ada bounding box kendaraan utuh (misal foto plat jarak dekat atau STNK)
+                            st.warning(
+                                f"⚠️ Tidak ada kendaraan yang terdeteksi oleh YOLO (confidence ≥ {conf_thresh:.2f}) maupun Gemini Full-Image.\n\n"
+                                "💡 **Tips:** Turunkan slider **YOLO Confidence** di panel kiri ke **0.20 - 0.25** dan pastikan **GEMINI_API_KEY** aktif untuk analisis adegan penuh."
+                            )
+                            # Jika tidak ada bounding box kendaraan utuh (misal foto plat jarak dekat, dokumen STNK, atau analisis foto umum)
                             if st.session_state.last_result:
                                 res = st.session_state.last_result
                                 is_safe = res.is_safe
@@ -368,18 +396,21 @@ with tabs[0]:
                                 badge_class = "badge-success" if is_safe else "badge-violation"
                                 status_label = "TERTIB / SAFE" if is_safe else "PELANGGARAN / UNSAFE"
 
-                                st.markdown(
-                                    f"""
-                                    <div style="border: 1px solid {border_color}; background: {bg_color}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                                        <span class="{badge_class}">{status_label}</span>
-                                        <br><b>Kategori:</b> {res.kategori}
-                                        <br><b>Plat Terbaca (OCR):</b> <code>{res.ocr_text or '-'}</code>
-                                        <br><b>Objek Terdeteksi:</b> {', '.join(res.objects)}
-                                        <br><b>Keterangan:</b> {res.caption}
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
+                                raw_ocr = res.ocr_text or "-"
+                                is_watermark = any(w in raw_ocr.lower() for w in ["www.", ".com", ".id", "http"])
+                                label_field = "Teks Terdeteksi (Watermark/Umum)" if is_watermark else "Teks / Plat Terbaca"
+
+                                fallback_card = "\n".join([
+                                    f'<div style="border: 1px solid {border_color}; background: {bg_color}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">',
+                                    f'<span class="{badge_class}">{status_label}</span>',
+                                    f'<br><b>Engine Analisis:</b> {html.escape(" ".join(str(res.provider).split()))}',
+                                    f'<br><b>Kategori:</b> {html.escape(" ".join(str(res.kategori).split()))}',
+                                    f'<br><b>{label_field}:</b> <code>{html.escape(" ".join(str(raw_ocr).split()))}</code>',
+                                    f'<br><b>Objek Terdeteksi:</b> {html.escape(", ".join(res.objects))}',
+                                    f'<br><b>Keterangan:</b> {html.escape(" ".join(str(res.caption).split()))}',
+                                    '</div>',
+                                ])
+                                st.markdown(fallback_card, unsafe_allow_html=True)
                             else:
                                 st.info("Tidak ada kendaraan yang terdeteksi pada citra ini.")
         else:
@@ -603,7 +634,7 @@ with tabs[2]:
 
 # --- Tab 4: Statistik & Galeri Koleksi ---
 with tabs[3]:
-    st.subheader("Statistik Arus Lalu Lintas & Galeri Koleksi OOP")
+    st.subheader("Statistik Arus Lalu Lintas & Galeri Koleksi")
 
     # Statistik Umum Database
     stats = db_manager.get_system_statistics()
@@ -611,7 +642,7 @@ with tabs[3]:
     m1.metric("Total Kendaraan Terhitung", stats["total_vehicles"])
     m2.metric("Total Pelanggaran", stats["total_violations"])
     m3.metric("Kepatuhan Helm", f"{stats['compliance_rate']}%")
-    m4.metric("Koleksi Foto (OOP)", len(st.session_state.collection))
+    m4.metric("Koleksi Foto", len(st.session_state.collection))
 
     st.markdown("---")
     col_chart1, col_chart2 = st.columns(2)

@@ -51,11 +51,14 @@ class ViolationCandidate:
     vehicle_type: str
     vehicle_bbox: Tuple[int, int, int, int]
     rider_bbox: Optional[Tuple[int, int, int, int]] = None
+    plate_bbox: Optional[Tuple[int, int, int, int]] = None
     rider_crop: Optional[np.ndarray] = None
     plate_crop: Optional[np.ndarray] = None
     rider_crop_path: Optional[Path] = None
     plate_crop_path: Optional[Path] = None
     timestamp: str = ""
+    license_plate: str = "TIDAK_TERBACA"
+    plate_confidence: float = 0.0
 
 
 class TrafficDetector:
@@ -130,33 +133,113 @@ class TrafficDetector:
         crop = frame[ny1:ny2, nx1:nx2]
         return crop if crop.size > 0 else None
 
-    def _estimate_plate_region(
+    def _detect_or_estimate_plate(
         self, frame: np.ndarray, vehicle_bbox: Tuple[int, int, int, int], vehicle_type: str
-    ) -> Optional[np.ndarray]:
+    ) -> Tuple[Optional[np.ndarray], Optional[Tuple[int, int, int, int]], str, float]:
         """
-        Mengestimasi dan memotong area plat nomor berdasarkan geometri kendaraan.
-        Pada motor: bagian belakang bawah atau depan bawah.
-        Pada mobil: bagian bumper tengah bawah.
+        Mendeteksi letak plat nomor secara presisi menggunakan pendekatan multi-tier:
+        1. EasyOCR CRAFT Text Localization di area kendaraan.
+        2. Filter Kontur Morfologi Persegi Panjang Plat.
+        3. Fallback Heuristik Geometris jika detektor teks belum menemukan posisi plat.
+
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[Tuple[int, int, int, int]], str, float]:
+                - Potongan citra plat (crop)
+                - Bounding box plat dalam koordinat frame (px1, py1, px2, py2)
+                - Teks plat hasil OCR jika langsung terdeteksi
+                - Skor keyakinan OCR
         """
         x1, y1, x2, y2 = vehicle_bbox
-        w = x2 - x1
-        h = y2 - y1
+        w = max(1, x2 - x1)
+        h = max(1, y2 - y1)
 
+        # Fokuskan pencarian pada area 70% bagian bawah kendaraan untuk efisiensi
+        search_y1 = max(0, y1 + int(0.30 * h))
+        search_roi = frame[search_y1:y2, x1:x2]
+
+        try:
+            from ocr_engine import plate_ocr
+            if search_roi.size > 0:
+                plate_text, conf, global_box, plate_crop = plate_ocr.locate_and_read_plate(
+                    search_roi, offset=(x1, search_y1)
+                )
+                if plate_crop is not None and global_box is not None:
+                    return plate_crop, global_box, plate_text, conf
+        except Exception as e:
+            logger.debug("Lokalisasi cerdas plat dilewati: %s", e)
+
+        # Fallback ke estimasi geometris adaptif
         if vehicle_type == "motorcycle":
-            # Area plat motor umumnya di 30% terbawah
+            px1 = int(x1 + 0.12 * w)
+            px2 = int(x2 - 0.12 * w)
+            py1 = int(y1 + 0.60 * h)
+            py2 = y2
+        else:
             px1 = int(x1 + 0.15 * w)
             px2 = int(x2 - 0.15 * w)
             py1 = int(y1 + 0.65 * h)
             py2 = y2
-        else:
-            # Area plat mobil/bus/truk di bumper tengah bawah (25% terbawah)
-            px1 = int(x1 + 0.20 * w)
-            px2 = int(x2 - 0.20 * w)
-            py1 = int(y1 + 0.70 * h)
-            py2 = y2
 
-        plate_bbox = (px1, py1, px2, py2)
-        return self._crop_with_margin(frame, plate_bbox, margin_ratio=0.05)
+        plate_bbox = (max(0, px1), max(0, py1), min(frame.shape[1], px2), min(frame.shape[0], py2))
+        crop = self._crop_with_margin(frame, plate_bbox, margin_ratio=0.05)
+        # Jika teks plat tidak terkonfirmasi, jangan kembalikan bounding box plat semu (hindari salah sorot)
+        return crop, None, "TIDAK_TERBACA", 0.0
+
+    def _find_associated_rider(
+        self, vehicle_bbox: Tuple[int, int, int, int], persons: List[TrackedObject]
+    ) -> Optional[TrackedObject]:
+        """
+        Mencari objek person yang benar-benar menunggangi sepeda motor.
+        Mencegah kesalahan asosiasi terhadap polisi atau pejalan kaki yang berdiri di tepi jalan.
+        """
+        vx1, vy1, vx2, vy2 = vehicle_bbox
+        vw = max(1, vx2 - vx1)
+        vh = max(1, vy2 - vy1)
+        v_cx = (vx1 + vx2) / 2
+
+        best_candidate: Optional[TrackedObject] = None
+        best_score = -1.0
+
+        for person in persons:
+            px1, py1, px2, py2 = person.bbox
+            pw = max(1, px2 - px1)
+            p_cx = (px1 + px2) / 2
+
+            # 1. Titik tengah pengendara harus berada di atas rentang horizontal motor
+            if not (vx1 - 0.05 * vw <= p_cx <= vx2 + 0.05 * vw):
+                continue
+
+            # 2. Overlap horizontal signifikan
+            overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
+            overlap_ratio = overlap_x / pw
+            if overlap_ratio < 0.35:
+                continue
+
+            # 3. Posisi vertikal: Kepala/badan harus berada di paruh atas motor atau di atasnya
+            if py1 > vy1 + 0.50 * vh:
+                continue
+            # Kaki tidak boleh berdiri jauh di bawah motor (orang di trotoar/tepi jalan)
+            if py2 > vy2 + 0.15 * vh:
+                continue
+
+            # Skor gabungan: semakin mendekati garis tengah motor, semakin tinggi prioritasnya
+            norm_dist_x = abs(p_cx - v_cx) / vw
+            score = overlap_ratio * 1.5 - norm_dist_x
+
+            if score > best_score:
+                best_score = score
+                best_candidate = person
+
+        return best_candidate
+
+    def _estimate_plate_region(
+        self, frame: np.ndarray, vehicle_bbox: Tuple[int, int, int, int], vehicle_type: str
+    ) -> Optional[np.ndarray]:
+        """
+        Wrapper kompatibilitas untuk mengestimasi dan memotong area plat nomor.
+        """
+        crop, _, _, _ = self._detect_or_estimate_plate(frame, vehicle_bbox, vehicle_type)
+        return crop
 
     def process_frame(
         self, frame: np.ndarray, line_ratio: float = COUNTING_LINE_Y_RATIO
@@ -281,17 +364,9 @@ class TrafficDetector:
 
             # Deteksi khusus Sepeda Motor: Asosiasikan dengan Pengendara
             associated_rider: Optional[TrackedObject] = None
+            rider_box: Optional[Tuple[int, int, int, int]] = None
             if v_type == "motorcycle":
-                for person in detected_persons:
-                    px1, py1, px2, py2 = person.bbox
-                    # Asosiasi spasial: Posisi orang tumpang tindih secara horizontal dengan motor
-                    # dan badan orang berada di atas / memotong bagian atas motor
-                    overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
-                    rider_w = max(1, px2 - px1)
-
-                    if overlap_x / rider_w > 0.35 and (py2 > vy1 and py1 < vy2):
-                        associated_rider = person
-                        break
+                associated_rider = self._find_associated_rider(vehicle.bbox, detected_persons)
 
                 # Pemicu evaluasi pelanggaran (Crop Pengendara & Plat)
                 # Evaluasi dipicu jika kendaraan mendekati/melewati area pantau dan belum pernah diproses
@@ -304,17 +379,21 @@ class TrafficDetector:
                     rider_crop_path = None
                     if associated_rider is not None:
                         rider_crop = self._crop_with_margin(frame, associated_rider.bbox, margin_ratio=0.15)
+                        rider_box = associated_rider.bbox
                     else:
-                        # Jika objek person tidak terpisah, crop 60% area atas sepeda motor
-                        upper_motor_bbox = (vx1, vy1, vx2, int(vy1 + 0.6 * (vy2 - vy1)))
+                        # Jika objek person tidak terpisah, crop 55% area atas sepeda motor
+                        upper_motor_bbox = (vx1, vy1, vx2, int(vy1 + 0.55 * (vy2 - vy1)))
                         rider_crop = self._crop_with_margin(frame, upper_motor_bbox, margin_ratio=0.1)
+                        rider_box = upper_motor_bbox
 
                     if rider_crop is not None:
                         rider_filename = f"rider_{timestamp_str}_id{tid}.jpg"
                         rider_crop_path = RIDER_EVIDENCE_DIR / rider_filename
 
-                    # Crop plat nomor estimasi
-                    plate_crop = self._estimate_plate_region(frame, vehicle.bbox, v_type)
+                    # Deteksi / crop plat nomor secara presisi (CRAFT + Kontur + Geometri)
+                    plate_crop, plate_bbox, detected_plate_text, detected_plate_conf = (
+                        self._detect_or_estimate_plate(frame, vehicle.bbox, v_type)
+                    )
                     plate_crop_path = None
                     if plate_crop is not None:
                         plate_filename = f"plate_{timestamp_str}_id{tid}.jpg"
@@ -324,12 +403,15 @@ class TrafficDetector:
                         track_id=tid,
                         vehicle_type=v_type,
                         vehicle_bbox=vehicle.bbox,
-                        rider_bbox=associated_rider.bbox if associated_rider else None,
+                        rider_bbox=rider_box,
+                        plate_bbox=plate_bbox,
                         rider_crop=rider_crop,
                         plate_crop=plate_crop,
                         rider_crop_path=rider_crop_path,
                         plate_crop_path=plate_crop_path,
                         timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                        license_plate=detected_plate_text,
+                        plate_confidence=detected_plate_conf,
                     )
                     new_violation_candidates.append(candidate)
 
@@ -416,28 +498,27 @@ class TrafficDetector:
             associated_rider: Optional[TrackedObject] = None
             rider_crop = None
             rider_crop_path = None
+            rider_box: Optional[Tuple[int, int, int, int]] = None
 
             if v_type == "motorcycle":
-                for person in detected_persons:
-                    px1, py1, px2, py2 = person.bbox
-                    overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
-                    rider_w = max(1, px2 - px1)
-
-                    if overlap_x / rider_w > 0.35 and (py2 > vy1 and py1 < vy2):
-                        associated_rider = person
-                        break
+                associated_rider = self._find_associated_rider(vehicle.bbox, detected_persons)
 
                 if associated_rider is not None:
                     rider_crop = self._crop_with_margin(image, associated_rider.bbox, margin_ratio=0.15)
+                    rider_box = associated_rider.bbox
                 else:
-                    upper_motor_bbox = (vx1, vy1, vx2, int(vy1 + 0.6 * (vy2 - vy1)))
+                    # Ambil 55% area atas sepeda motor (kepala/torso pengendara)
+                    upper_motor_bbox = (vx1, vy1, vx2, int(vy1 + 0.55 * (vy2 - vy1)))
                     rider_crop = self._crop_with_margin(image, upper_motor_bbox, margin_ratio=0.1)
+                    rider_box = upper_motor_bbox
 
                 if rider_crop is not None:
                     rider_crop_path = RIDER_EVIDENCE_DIR / f"static_rider_{timestamp_str}_id{tid}.jpg"
 
-            # Crop plat nomor estimasi
-            plate_crop = self._estimate_plate_region(image, vehicle.bbox, v_type)
+            # Deteksi / crop plat nomor secara presisi (CRAFT + Kontur + Geometri)
+            plate_crop, plate_bbox, detected_plate_text, detected_plate_conf = (
+                self._detect_or_estimate_plate(image, vehicle.bbox, v_type)
+            )
             plate_crop_path = None
             if plate_crop is not None:
                 plate_crop_path = PLATE_EVIDENCE_DIR / f"static_plate_{timestamp_str}_id{tid}.jpg"
@@ -447,12 +528,15 @@ class TrafficDetector:
                     track_id=tid,
                     vehicle_type=v_type,
                     vehicle_bbox=vehicle.bbox,
-                    rider_bbox=associated_rider.bbox if associated_rider else None,
+                    rider_bbox=rider_box,
+                    plate_bbox=plate_bbox,
                     rider_crop=rider_crop,
                     plate_crop=plate_crop,
                     rider_crop_path=rider_crop_path,
                     plate_crop_path=plate_crop_path,
                     timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                    license_plate=detected_plate_text,
+                    plate_confidence=detected_plate_conf,
                 )
             )
 
