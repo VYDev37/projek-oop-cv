@@ -110,6 +110,16 @@ class TrafficDetector:
         self.vehicle_counts = {v: 0 for v in VEHICLE_CLASSES}
         self.total_counted = 0
 
+
+    def _prune_stale_tracks(self, active_ids: Set[int], max_tracks: int = 500) -> None:
+        """Hapus riwayat track yang sudah tidak aktif agar memori tidak membengkak."""
+        if len(self.track_history) <= max_tracks:
+            return
+        stale = [tid for tid in self.track_history if tid not in active_ids]
+        for tid in stale:
+            self.track_history.pop(tid, None)
+            self.track_class_history.pop(tid, None)
+
     def _crop_with_margin(
         self, frame: np.ndarray, bbox: Tuple[int, int, int, int], margin_ratio: float = 0.1
     ) -> Optional[np.ndarray]:
@@ -414,7 +424,7 @@ class TrafficDetector:
                         plate_confidence=detected_plate_conf,
                     )
                     new_violation_candidates.append(candidate)
-
+        self._prune_stale_tracks({v.track_id for v in tracked_vehicles})
         # ----------------------------------------------------------------------
         # C. DELEGASIKAN RENDERING ANOTASI KE TRAFFIC VISUALIZER
         # ----------------------------------------------------------------------
