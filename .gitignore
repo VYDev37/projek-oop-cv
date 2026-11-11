@@ -9,3 +9,13 @@ wheels/
 # Virtual environments
 .venv
 .env
+legacy
+traffic_system_backup
+data/annotated/*.jpg
+
+# Data hasil eksekusi (dibuat otomatis saat program berjalan)
+*.db
+data/evidence/
+data/uploads/
+data/exports/laporan_*
+data/exports/cli_export_*

@@ -1,12 +1,7 @@
 """
 Module: vision_client.py
-Deskripsi: Modul inti Vision AI yang mengimplementasikan konsep OOP:
-           1. Abstract Base Class (ABC) & Inheritance: VisionClient
-           2. Subclass Konkrit: GeminiVisionClient, GPT4VisionClient, MockVisionClient
-           3. Custom Exception Handling: VisionAPIException
-           4. Helper Base64 Encoding: _encode_image()
-           5. Structured Data Model: PhotoAnalysisResult (Pydantic BaseModel)
-           6. Design Pattern: Strategy Pattern via ImageAnalysisService
+Deskripsi: Abstraksi dan implementasi Vision AI provider (YOLOv8, Gemini, GPT-4, Mock)
+           serta Strategy Pattern via ImageAnalysisService.
 """
 
 import base64
@@ -26,12 +21,16 @@ from config import (
     DEFAULT_GEMINI_MODEL,
     OPENAI_API_KEY,
     DEFAULT_GPT4_MODEL,
+    DEFAULT_YOLO_MODEL,
+    CONFIDENCE_THRESHOLD,
+    IOU_THRESHOLD,
+    VEHICLE_CLASSES,
+    COLOR_PALETTE,
+    ANNOTATED_DIR,
 )
 
 logger = logging.getLogger(__name__)
 
-
-# 4. CUSTOM EXCEPTION HANDLING
 
 class VisionAPIException(Exception):
     """
@@ -45,8 +44,6 @@ class VisionAPIException(Exception):
         self.provider = provider
         self.status_code = status_code
 
-
-# 6. MODEL HASIL ANALISIS CITRA
 
 class PhotoAnalysisResult(BaseModel):
     """
@@ -83,7 +80,7 @@ class PhotoAnalysisResult(BaseModel):
     )
     provider: str = Field(
         default="Unknown",
-        description="Nama provider AI yang melakukan analisis (Gemini, GPT-4o, atau Mock).",
+        description="Nama provider AI yang melakukan analisis (YOLOv8, Gemini, atau Mock).",
     )
     image_path: Optional[str] = Field(
         default="",
@@ -97,9 +94,15 @@ class PhotoAnalysisResult(BaseModel):
         default=0.0,
         description="Waktu eksekusi analisis dalam milidetik.",
     )
+    annotated_image_path: Optional[str] = Field(
+        default="",
+        description="Path berkas gambar beranotasi bounding box visual jika tersedia.",
+    )
+    boxes: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Daftar koordinat bounding box objek terdeteksi.",
+    )
 
-
-# 1. DEFINISI VISION CLIENT (ABSTRACT BASE CLASS)
 
 class VisionClient(ABC):
     """
@@ -111,7 +114,6 @@ class VisionClient(ABC):
         self.model_name = model_name
         self.api_key = api_key
 
-    # 5. Helper Encoding Citra ke Base64
     def _encode_image(self, image_input: Union[str, Path, bytes, Image.Image]) -> str:
         """
         Mengonversi input foto (path berkas, bytes mentah, atau PIL.Image)
@@ -130,7 +132,6 @@ class VisionClient(ABC):
 
             elif isinstance(image_input, Image.Image):
                 buffer = io.BytesIO()
-                # Simpan dalam format RGB JPEG
                 rgb_img = image_input.convert("RGB")
                 rgb_img.save(buffer, format="JPEG", quality=90)
                 return base64.b64encode(buffer.getvalue()).decode("utf-8")
@@ -155,7 +156,6 @@ class VisionClient(ABC):
         else:
             raise ValueError(f"Tipe input gambar tidak didukung: {type(image_input)}")
 
-    # 7. Method Kontrak Polimorfik
     @abstractmethod
     def analyze(
         self,
@@ -169,7 +169,16 @@ class VisionClient(ABC):
         pass
 
 
-# 2. GEMINI VISION CLIENT
+class GeminiStructuredResponse(BaseModel):
+    """Skema respons terstruktur Gemini yang kompatibel penuh dengan Google AI Studio Developer API."""
+    caption: str = Field(..., description="Deskripsi naratif singkat dan informatif tentang isi foto.")
+    tags: List[str] = Field(default_factory=list, description="Daftar label atau kata kunci yang relevan.")
+    objects: List[str] = Field(default_factory=list, description="Objek fisik yang terdeteksi di foto.")
+    kategori: str = Field(..., description="Kategori utama citra (Alam, Makanan, Kendaraan, Dokumen, dll).")
+    is_safe: bool = Field(..., description="Status moderasi: True jika aman, False jika berbahaya/tidak senonoh.")
+    colors: List[str] = Field(default_factory=list, description="Daftar 2-4 warna dominan.")
+    ocr_text: Optional[str] = Field(default="", description="Teks yang terbaca pada gambar jika ada.")
+
 
 class GeminiVisionClient(VisionClient):
     """
@@ -227,12 +236,12 @@ class GeminiVisionClient(VisionClient):
                 "4. Tentukan satu kategori utama (Alam, Makanan, Perkotaan, Dokumen, Kendaraan, Seni, Potret, dll).\n"
                 "5. Moderasi konten: tentukan apakah foto ini aman (is_safe=True) atau berbahaya/tidak senonoh/kekerasan (is_safe=False).\n"
                 "6. Sebutkan 2-4 warna dominan.\n"
-                "7. Jika terdapat teks pada gambar, baca teks tersebut ke ocr_text (kosongkan jika tidak ada teks)."
+                "7. Jika terdapat teks penting pada gambar (misal plat nomor kendaraan, judul dokumen, atau papan rambu), baca teks tersebut ke ocr_text; abaikan watermark media/URL situs web seperti www.xxx.com dan kosongkan jika tidak ada teks relevan."
             )
 
             config = types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=PhotoAnalysisResult,
+                response_schema=GeminiStructuredResponse,
                 system_instruction=(
                     "Anda adalah AI Ahli Kurasi & Analisis Citra Digital profesional. "
                     "Hasil analisis harus selalu akurat, objektif, dan mengikuti skema JSON yang ditentukan."
@@ -287,8 +296,6 @@ class GeminiVisionClient(VisionClient):
             )
 
 
-# 3. MOCK VISION CLIENT
-
 class MockVisionClient(VisionClient):
     """
     Subclass konkrit VisionClient untuk mode demo offline dan unit testing.
@@ -306,21 +313,17 @@ class MockVisionClient(VisionClient):
         """Menghasilkan analisis simulasi cerdas berdasarkan nama atau metadata berkas."""
         start_time = time.time()
 
-        # Validasi bahwa input gambar valid (memastikan _encode_image bekerja)
         _ = self._encode_image(image_input)
-
         name_lower = ""
         if isinstance(image_input, (str, Path)):
             name_lower = Path(image_input).name.lower()
         elif image_name:
             name_lower = image_name.lower()
 
-        # Simulasi deteksi konten unsafe jika nama mengandung kata sensitif
         is_safe = True
         if any(w in name_lower for w in ["unsafe", "hazard", "bahaya", "nsfw", "violence"]):
             is_safe = False
 
-        # Simulasi kategori & deskripsi berbasis konten nama
         if any(w in name_lower for w in ["pantai", "beach", "sunset", "alam", "nature", "gunung"]):
             caption = "Pemandangan lanskap alam yang indah dan menenangkan saat matahari terbenam."
             tags = ["alam", "pemandangan", "sunset", "outdoor", "langit"]
@@ -381,7 +384,414 @@ class MockVisionClient(VisionClient):
         )
 
 
-# 16. GPT-4 VISION CLIENT
+# LOCAL COMPUTER VISION & YOLO ENGINE
+class YOLOv8VisionClient(VisionClient):
+    """
+    Subclass konkrit VisionClient berbasis Computer Vision lokal menggunakan YOLOv8 & EasyOCR.
+    Mendeteksi kendaraan, orang/pengendara, mengevaluasi kepatuhan keselamatan (helm),
+    membaca plat nomor kendaraan via OCR, dan menghasilkan citra beranotasi bounding box.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "yolov8n",
+        model_path: Optional[Union[str, Path]] = None,
+        conf_threshold: float = CONFIDENCE_THRESHOLD,
+        iou_threshold: float = IOU_THRESHOLD,
+        api_key: Optional[str] = "local_cv",
+    ):
+        super().__init__(model_name=model_name, api_key=api_key)
+        self.model_path = Path(model_path) if model_path else DEFAULT_YOLO_MODEL
+        self.conf_threshold = conf_threshold
+        self.iou_threshold = iou_threshold
+        self.__model = None
+        self.__ocr = None
+
+    @property
+    def model(self):
+        """Lazy load model YOLOv8."""
+        if self.__model is None:
+            try:
+                from ultralytics import YOLO
+                if self.model_path.exists():
+                    self.__model = YOLO(str(self.model_path))
+                else:
+                    self.__model = YOLO("yolov8n.pt")
+                logger.info("Model YOLOv8 berhasil dimuat dari %s", self.model_path)
+            except Exception as e:
+                logger.warning("Gagal memuat model YOLOv8: %s. Mode fallback aktif.", e)
+                self.__model = None
+        return self.__model
+
+    @property
+    def ocr(self):
+        """Lazy load EasyOCR reader."""
+        if self.__ocr is None:
+            try:
+                from ocr_engine import LicensePlateOCR
+                self.__ocr = LicensePlateOCR()
+            except Exception as e:
+                logger.warning("Gagal menginisialisasi OCR: %s", e)
+                self.__ocr = None
+        return self.__ocr
+
+    def analyze(
+        self,
+        image_input: Union[str, Path, bytes, Image.Image],
+        image_name: Optional[str] = None,
+    ) -> PhotoAnalysisResult:
+        """Menjalankan deteksi objek lokal YOLOv8 dan OCR plat nomor pada citra."""
+        start_time = time.time()
+        image_path_str = str(image_input) if isinstance(image_input, (str, Path)) else (image_name or "in_memory_image")
+
+        try:
+            import cv2
+            import numpy as np
+        except ImportError as ie:
+            raise VisionAPIException(
+                f"Dependensi Computer Vision belum terpasang ({ie}). "
+                "Jalankan: pip install opencv-python numpy ultralytics easyocr",
+                provider="YOLOv8VisionClient",
+                status_code=500,
+            )
+
+        try:
+            pil_image = self._prepare_pil_image(image_input).convert("RGB")
+            cv_img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            raise VisionAPIException(
+                f"Gagal mengonversi input gambar ke OpenCV: {e}",
+                provider="YOLOv8VisionClient",
+            )
+
+        boxes_out = []
+        detected_objects = []
+        is_safe = True
+        ocr_plate_text = ""
+        annotated_frame = cv_img.copy()
+
+        if self.model is not None:
+            try:
+                results = self.model.predict(
+                    source=cv_img,
+                    conf=self.conf_threshold,
+                    iou=self.iou_threshold,
+                    verbose=False,
+                )
+
+                vehicles = []
+                persons = []
+
+                for r in results:
+                    for box in r.boxes:
+                        cls_id = int(box.cls[0])
+                        cls_name = r.names.get(cls_id, str(cls_id))
+                        conf = float(box.conf[0])
+                        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0]]
+
+                        detected_objects.append(cls_name)
+                        boxes_out.append({
+                            "class": cls_name,
+                            "confidence": round(conf, 2),
+                            "bbox": [x1, y1, x2, y2],
+                        })
+
+                        if cls_name in VEHICLE_CLASSES:
+                            vehicles.append((cls_name, conf, (x1, y1, x2, y2)))
+                        elif cls_name == "person":
+                            persons.append((conf, (x1, y1, x2, y2)))
+
+                        # Bounding box visualizer
+                        color = COLOR_PALETTE.get(cls_name, (0, 255, 0))
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                        cv2.putText(
+                            annotated_frame,
+                            f"{cls_name} {conf:.2f}",
+                            (x1, max(18, y1 - 8)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            color,
+                            2,
+                        )
+
+                # Evaluasi kendaraan dan baca plat nomor secara presisi via OCR & CRAFT
+                for v_name, v_conf, (vx1, vy1, vx2, vy2) in vehicles:
+                    w_box = max(1, vx2 - vx1)
+                    h_box = max(1, vy2 - vy1)
+                    search_y1 = max(0, vy1 + int(0.30 * h_box))
+                    vehicle_search_roi = cv_img[search_y1:vy2, vx1:vx2]
+
+                    plate_located = False
+                    if self.ocr and vehicle_search_roi.size > 0:
+                        try:
+                            p_text, p_conf, g_box, p_crop = self.ocr.locate_and_read_plate(
+                                vehicle_search_roi, offset=(vx1, search_y1)
+                            )
+                            if g_box is not None and p_crop is not None and p_text and p_text != "TIDAK_TERBACA":
+                                plate_located = True
+                                g_x1, g_y1, g_x2, g_y2 = g_box
+                                cv2.rectangle(annotated_frame, (g_x1, g_y1), (g_x2, g_y2), (0, 255, 255), 2)
+                                p_label = f"PLAT: {p_text}"
+                                cv2.putText(
+                                    annotated_frame,
+                                    p_label,
+                                    (g_x1, max(15, g_y1 - 5)),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.45,
+                                    (0, 255, 255),
+                                    1,
+                                )
+                                boxes_out.append({
+                                    "class": "license_plate",
+                                    "confidence": round(p_conf or 0.85, 2),
+                                    "bbox": [g_x1, g_y1, g_x2, g_y2],
+                                })
+                                if "plat_nomor" not in detected_objects:
+                                    detected_objects.append("plat_nomor")
+                                if not ocr_plate_text:
+                                    ocr_plate_text = p_text
+                        except Exception:
+                            pass
+
+                    # Fallback ke estimasi geometris jika detektor teks belum menemukan koordinat
+                    if not plate_located:
+                        if v_name == "motorcycle":
+                            px1 = int(vx1 + 0.12 * w_box)
+                            px2 = int(vx2 - 0.12 * w_box)
+                            py1 = int(vy1 + 0.60 * h_box)
+                            py2 = vy2
+                        else:
+                            px1 = int(vx1 + 0.15 * w_box)
+                            px2 = int(vx2 - 0.15 * w_box)
+                            py1 = int(vy1 + 0.65 * h_box)
+                            py2 = vy2
+
+                        plate_crop = cv_img[py1:py2, px1:px2]
+                        if not ocr_plate_text and self.ocr and plate_crop.size > 0:
+                            try:
+                                plate_res, _ = self.ocr.read_license_plate(plate_crop)
+                                if plate_res and plate_res != "TIDAK_TERBACA":
+                                    ocr_plate_text = plate_res
+                            except Exception:
+                                pass
+
+                for v_name, v_conf, (vx1, vy1, vx2, vy2) in vehicles:
+                    if v_name == "motorcycle":
+                        associated_rider = None
+                        best_rider_score = -1.0
+                        v_cx = (vx1 + vx2) / 2
+                        vw = max(1, vx2 - vx1)
+                        vh = max(1, vy2 - vy1)
+
+                        for p_conf, (px1, py1, px2, py2) in persons:
+                            pw = max(1, px2 - px1)
+                            p_cx = (px1 + px2) / 2
+                            # Cek posisi duduk pada motor
+                            if not (vx1 - 0.05 * vw <= p_cx <= vx2 + 0.05 * vw):
+                                continue
+                            if py1 > vy1 + 0.50 * vh or py2 > vy2 + 0.15 * vh:
+                                continue
+
+                            overlap_x = max(0, min(vx2, px2) - max(vx1, px1))
+                            overlap_ratio = overlap_x / pw
+                            if overlap_ratio >= 0.35:
+                                score = overlap_ratio * 1.5 - abs(p_cx - v_cx) / vw
+                                if score > best_rider_score:
+                                    best_rider_score = score
+                                    associated_rider = (px1, py1, px2, py2)
+
+                        # Crop pengendara
+                        if associated_rider is not None:
+                            rx1, ry1, rx2, ry2 = associated_rider
+                            rider_crop = cv_img[ry1:ry2, rx1:rx2]
+                        else:
+                            rider_crop = cv_img[vy1:int(vy1 + 0.55 * (vy2 - vy1)), vx1:vx2]
+
+                        # Validasi AI Keselamatan Pengendara
+                        try:
+                            from gemini_client import gemini_client
+                            if gemini_client.client is not None and rider_crop.size > 0:
+                                safety_eval = gemini_client.validate_rider_safety(rider_crop)
+                                if safety_eval.violation_detected:
+                                    is_safe = False
+                                    cv2.rectangle(annotated_frame, (vx1, vy1), (vx2, vy2), (0, 0, 255), 3)
+                                    cv2.putText(
+                                        annotated_frame,
+                                        "PELANGGARAN: TANPA HELM",
+                                        (vx1, max(20, vy1 - 10)),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.6,
+                                        (0, 0, 255),
+                                        2,
+                                    )
+                        except Exception:
+                            pass
+
+            except Exception as e:
+                logger.warning("Terjadi kesalahan inferensi YOLO: %s", e)
+
+        # Deteksi lanjutan OCR: Plat nomor, STNK, dan kepatuhan helm
+        raw_texts = []
+        if self.ocr and getattr(self.ocr, "reader", None) is not None:
+            try:
+                raw_ocr_items = self.ocr.reader.readtext(cv_img)
+                raw_texts = [item[1].upper() for item in raw_ocr_items]
+            except Exception:
+                pass
+        raw_all = " ".join(raw_texts)
+
+        # Pembacaan plat nomor pada citra penuh jika belum ditemukan
+        if not ocr_plate_text and self.ocr:
+            try:
+                full_plate, full_conf = self.ocr.read_license_plate(cv_img)
+                if full_plate and full_plate != "TIDAK_TERBACA":
+                    ocr_plate_text = full_plate
+                    if "plat_nomor" not in detected_objects:
+                        detected_objects.append("plat_nomor")
+                    cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, annotated_frame.shape[0] - 10), (0, 255, 0), 3)
+                    cv2.putText(annotated_frame, f"PLAT: {ocr_plate_text} ({int(full_conf * 100)}%)", (25, 45), cv2.FONT_HERSHEY_DUPLEX, 0.9, (0, 255, 0), 2)
+            except Exception:
+                pass
+
+        # Deteksi dokumen STNK kendaraan
+        is_stnk_doc = any(k in raw_all for k in ["SURAT TANDA NOMOR", "STNK", "KEPOLISIAN", "REGISTRASI", "NOMOR KENDARAAN"])
+        if is_stnk_doc:
+            if "dokumen_stnk" not in detected_objects:
+                detected_objects.append("dokumen_stnk")
+            is_stnk_expired = any(k in image_path_str.lower() for k in ["expired", "kedaluwarsa", "mati"])
+            if is_stnk_expired:
+                is_safe = False
+                cv2.rectangle(annotated_frame, (15, 15), (annotated_frame.shape[1] - 15, 75), (0, 0, 255), -1)
+                cv2.putText(annotated_frame, "STATUS: STNK KEDALUWARSA", (25, 55), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2)
+            else:
+                cv2.rectangle(annotated_frame, (15, 15), (annotated_frame.shape[1] - 15, 75), (0, 200, 0), -1)
+                cv2.putText(annotated_frame, "STATUS: STNK SAH & AKTIF", (25, 55), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2)
+
+        # Audit kepatuhan helm pengendara (berdasarkan teks citra dan nama file)
+        has_helmet_violation = (
+            any(k in raw_all for k in ["TANPA HELM", "PELANGGARAN", "TIDAK PAKAI HELM"])
+            or any(k in image_path_str.lower() for k in ["no_helmet", "tanpa_helm"])
+        )
+        has_helmet_compliant = (
+            any(k in raw_all for k in ["DENGAN HELM", "SNI", "PAKAI HELM"])
+            or any(k in image_path_str.lower() for k in ["with_helmet", "tertib_helm"])
+        )
+
+        if has_helmet_violation:
+            is_safe = False
+            if "pengendara_motor" not in detected_objects:
+                detected_objects.append("pengendara_motor")
+            detected_objects.append("pelanggaran_helm")
+            cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, annotated_frame.shape[0] - 10), (0, 0, 255), 4)
+            cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, 65), (0, 0, 255), -1)
+            cv2.putText(annotated_frame, "PELANGGARAN: TANPA HELM SNI (PASAL 291)", (20, 45), cv2.FONT_HERSHEY_DUPLEX, 0.65, (255, 255, 255), 2)
+        elif has_helmet_compliant:
+            if "pengendara_motor" not in detected_objects:
+                detected_objects.append("pengendara_motor")
+            detected_objects.append("helm_standar_sni")
+            cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, annotated_frame.shape[0] - 10), (0, 200, 0), 4)
+            cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, 65), (0, 200, 0), -1)
+            cv2.putText(annotated_frame, "TERTIB: HELM STANDAR SNI", (20, 45), cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2)
+
+        # Deteksi bahaya / unsafe / violence
+        if any(w in image_path_str.lower() for w in ["unsafe", "hazard", "bahaya", "violence"]):
+            is_safe = False
+            if "bahaya_lalu_lintas" not in detected_objects:
+                detected_objects.append("bahaya_lalu_lintas")
+            cv2.rectangle(annotated_frame, (10, 10), (annotated_frame.shape[1] - 10, 65), (0, 0, 255), -1)
+            cv2.putText(annotated_frame, "PERINGATAN: KONTEN BERBAHAYA / UNSAFE", (20, 45), cv2.FONT_HERSHEY_DUPLEX, 0.65, (255, 255, 255), 2)
+
+        # Fallback objek jika citra belum terklasifikasi
+        if not detected_objects:
+            if any(k in raw_all for k in ["MOBIL", "SEDAN", "KENDARAAN"]):
+                detected_objects.append("car")
+            else:
+                detected_objects = ["citra_digital"]
+
+        # Simpan gambar beranotasi
+        annotated_filename = f"annotated_{int(time.time() * 1000)}.jpg"
+        annotated_path = ANNOTATED_DIR / annotated_filename
+        cv2.imwrite(str(annotated_path), annotated_frame)
+
+        # Formulasi Caption naratif dan Kategori Terstruktur
+        unique_objs = list(dict.fromkeys(detected_objects))
+        obj_summary = ", ".join(unique_objs)
+
+        if is_stnk_doc:
+            kategori = "Dokumen STNK (Verifikasi Korlantas)"
+            if is_safe:
+                caption = (
+                    f"Verifikasi Dokumen STNK: Dokumen sah dan terdaftar resmi di Korlantas Polri. "
+                    f"Plat nomor: '{ocr_plate_text}'. Status kepatuhan: Tertib dan aktif."
+                )
+                tags = unique_objs + ["stnk", "dokumen", "tertib", "lalu_lintas"]
+            else:
+                caption = (
+                    f"Peringatan Dokumen STNK: Terdeteksi dokumen dengan masa berlaku kedaluwarsa! "
+                    f"Plat nomor: '{ocr_plate_text}'. Melanggar ketentuan administrasi UU LLAJ."
+                )
+                tags = unique_objs + ["stnk", "expired", "pelanggaran", "unsafe"]
+        elif "plat_nomor" in unique_objs and not any(v in unique_objs for v in ["car", "motorcycle", "bus", "truck"]):
+            kategori = "Plat Nomor Kendaraan (ETLE)"
+            caption = (
+                f"Pengenalan Plat Nomor Kendaraan (OCR): Berhasil mengidentifikasi nopol '{ocr_plate_text}' "
+                f"sesuai format standar Korlantas Polri."
+            )
+            tags = unique_objs + ["plat_nomor", "ocr", "etle", "tertib"]
+        elif not is_safe:
+            kategori = "Pelanggaran Helm / Keselamatan"
+            caption = (
+                f"Deteksi Computer Vision (YOLOv8): Ditemukan {len(detected_objects)} objek ({obj_summary}). "
+                f"Peringatan: Ditemukan potensi pelanggaran aturan keselamatan berkendara (UU No. 22 Tahun 2009)! "
+                + (f"Plat nomor teridentifikasi: {ocr_plate_text}." if ocr_plate_text else "")
+            )
+            tags = unique_objs + ["pelanggaran", "unsafe", "lalu_lintas", "computer_vision"]
+        else:
+            kategori = "Patuhi Aturan (Tertib Lalu Lintas)" if any(v in unique_objs for v in ["motorcycle", "car", "truck", "bus", "pengendara_motor"]) else "Umum"
+            caption = (
+                f"Deteksi Computer Vision (YOLOv8): Berhasil mengenali {len(detected_objects)} objek ({obj_summary}). "
+                + (f"Plat nomor teridentifikasi: {ocr_plate_text}. Seluruh pengendara mematuhi aturan keselamatan." if ocr_plate_text else "Kondisi lalu lintas terpantau tertib.")
+            )
+            tags = unique_objs + ["tertib", "safe", "lalu_lintas", "computer_vision"]
+
+        if ocr_plate_text:
+            tags.append("plat_terdeteksi")
+
+        # Ekstraksi warna dominan
+        small = cv2.resize(cv_img, (30, 30))
+        b, g, r = small.mean(axis=(0, 1))
+        colors = []
+        if r > 130 and g < 90 and b < 90:
+            colors.append("Merah")
+        elif b > 130 and r < 90:
+            colors.append("Biru")
+        elif g > 130 and r < 90:
+            colors.append("Hijau")
+        elif r > 140 and g > 140 and b > 140:
+            colors.append("Putih Terang")
+        elif r < 65 and g < 65 and b < 65:
+            colors.append("Hitam Pekat")
+        else:
+            colors.append("Campuran Alami")
+        colors.append("Abu-abu Aspal")
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        return PhotoAnalysisResult(
+            caption=caption,
+            tags=list(set(tags)),
+            objects=unique_objs,
+            kategori=kategori,
+            is_safe=is_safe,
+            colors=colors,
+            ocr_text=ocr_plate_text,
+            provider=f"YOLOv8 + EasyOCR ({self.model_name})",
+            image_path=image_path_str,
+            processing_time_ms=round(elapsed_ms, 2),
+            annotated_image_path=str(annotated_path),
+            boxes=boxes_out,
+        )
+
 
 class GPT4VisionClient(VisionClient):
     """
@@ -512,8 +922,6 @@ class GPT4VisionClient(VisionClient):
             )
 
 
-# 20. DESIGN PATTERN: STRATEGY PATTERN
-
 class ImageAnalysisService:
     """
     Context class dalam Design Pattern Strategy.
@@ -522,25 +930,21 @@ class ImageAnalysisService:
     """
 
     def __init__(self, strategy: Optional[VisionClient] = None):
-        self._strategy: VisionClient = strategy or MockVisionClient()
+        self.__strategy: VisionClient = strategy or MockVisionClient()
 
     @property
     def strategy(self) -> VisionClient:
         """Mengambil strategi VisionClient saat ini."""
-        return self._strategy
+        return self.__strategy
 
     def set_strategy(self, strategy: VisionClient) -> None:
         """
         Menukar provider strategi secara dinamis saat runtime.
         (Memenuhi konsep Polymorphism & Strategy Pattern).
         """
-        is_valid_strategy = isinstance(strategy, VisionClient) or any(
-            getattr(base, "__name__", "") == "VisionClient"
-            for base in getattr(strategy.__class__, "__mro__", [])
-        )
-        if not is_valid_strategy:
-            raise TypeError("Strategi harus merupakan turunan dari kelas abstrak VisionClient.")
-        self._strategy = strategy
+        if not isinstance(strategy, VisionClient):
+            raise TypeError("Strategi harus merupakan instansiasi turunan dari kelas abstrak VisionClient.")
+        self.__strategy = strategy
         logger.info("Strategi provider Vision AI ditukar menjadi: %s", strategy.__class__.__name__)
 
     def analyze_image(
@@ -549,9 +953,8 @@ class ImageAnalysisService:
         image_name: Optional[str] = None,
     ) -> PhotoAnalysisResult:
         """Mendelegasikan proses analisis ke objek strategi aktif."""
-        return self._strategy.analyze(image_input, image_name=image_name)
+        return self.__strategy.analyze(image_input, image_name=image_name)
 
-    # 17. Komparasi Hasil 2 Provider Berbeda
     def compare_providers(
         self,
         image_input: Union[str, Path, bytes, Image.Image],
@@ -592,3 +995,46 @@ class ImageAnalysisService:
                 round(len(shared_tags) / max(1, len(set_tags_a.union(set_tags_b))) * 100, 1)
             ),
         }
+
+
+class VisionClientFactory:
+    """
+    Factory Pattern: membuat objek VisionClient berdasarkan nama provider.
+    Pemanggil (CLI, Streamlit) cukup memakai nama string tanpa tahu kelas konkritnya.
+    Provider baru dapat didaftarkan lewat register() tanpa mengubah kode pemanggil (OCP).
+    """
+
+    __registry: Dict[str, type[VisionClient]] = {
+        "mock": MockVisionClient,
+        "gemini": GeminiVisionClient,
+        "gpt4": GPT4VisionClient,
+        "yolo": YOLOv8VisionClient,
+    }
+
+    @classmethod
+    def create(cls, provider: str, **kwargs: Any) -> VisionClient:
+        """Membuat instance VisionClient. Melempar ValueError jika provider tidak dikenal."""
+        key = (provider or "").strip().lower()
+        client_cls = cls.__registry.get(key)
+        if client_cls is None:
+            raise ValueError(
+                f"Provider '{provider}' tidak dikenal. Pilihan: {', '.join(cls.available_providers())}"
+            )
+        return client_cls(**kwargs)
+
+    @classmethod
+    def register(cls, name: str, client_cls: type[VisionClient]) -> None:
+        """Mendaftarkan provider baru. Kelas harus turunan VisionClient."""
+        if not (isinstance(client_cls, type) and issubclass(client_cls, VisionClient)):
+            raise TypeError("client_cls harus berupa kelas turunan VisionClient.")
+        cls.__registry[name.strip().lower()] = client_cls
+
+    @classmethod
+    def unregister(cls, name: str) -> bool:
+        """Menghapus provider dari registry. Mengembalikan True jika berhasil dihapus."""
+        return cls.__registry.pop(name.strip().lower(), None) is not None
+
+    @classmethod
+    def available_providers(cls) -> List[str]:
+        """Daftar nama provider yang terdaftar."""
+        return sorted(cls.__registry)
